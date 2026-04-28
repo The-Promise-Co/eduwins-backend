@@ -4,75 +4,12 @@ import jwt from 'jsonwebtoken';
 import { db } from '../database/db';
 import { users, teacherProfiles, parentProfiles, otps } from '../database/schema';
 import { eq, or } from 'drizzle-orm';
-import { sendOTP } from '../utils/smsSender';
+import { emailService } from '../utils/emailSender';
 import { generateOTP } from '../utils/otpGenerator';
 
 const TEACHER_REFERRAL_WELFARE_BOOST = 1500; // ₦1,500 welfare boost per referral
 const PARENT_REFERRAL_DISCOUNT_VALUE = 1000; // ₦1,000 booking credit per referral
 
-/**
- * Apply referral rewards when a new user registers or verifies
- */
-async function applyReferralRewards(referrerId: string, newUserRole: string): Promise<void> {
-  if (!referrerId) return;
-
-  const referrer = await db.query.users.findFirst({
-    where: eq(users.id, referrerId),
-  });
-
-  if (!referrer) return;
-
-  // Increase referral count on referrer user record
-  const newCount = (referrer.referralCount || 0) + 1;
-  await db.update(users)
-    .set({ referralCount: newCount })
-    .where(eq(users.id, referrerId));
-
-  // Teacher reward: welfare boost when referring another teacher
-  if (referrer.role === 'teacher' && newUserRole === 'teacher') {
-    const profile = await db.query.teacherProfiles.findFirst({
-      where: eq(teacherProfiles.userId, referrerId),
-    });
-
-    if (profile) {
-      const currentWelfare = parseFloat(profile.welfareBalance?.toString() || '0');
-      const currentBoost = parseFloat(profile.referralWelfareBoost?.toString() || '0');
-      
-      await db.update(teacherProfiles)
-        .set({
-          welfareBalance: (currentWelfare + TEACHER_REFERRAL_WELFARE_BOOST).toString(),
-          referralWelfareBoost: (currentBoost + TEACHER_REFERRAL_WELFARE_BOOST).toString(),
-        })
-        .where(eq(teacherProfiles.userId, referrerId));
-    }
-  }
-
-  // Parent reward: discount credit when referring another parent
-  if (referrer.role === 'parent' && newUserRole === 'parent') {
-    const profile = await db.query.parentProfiles.findFirst({
-      where: eq(parentProfiles.userId, referrerId),
-    });
-
-    if (profile) {
-      const currentDiscount = parseFloat(profile.referralDiscount?.toString() || '0');
-      
-      await db.update(parentProfiles)
-        .set({
-          referralDiscount: (currentDiscount + PARENT_REFERRAL_DISCOUNT_VALUE).toString(),
-        })
-        .where(eq(parentProfiles.userId, referrerId));
-    }
-  }
-}
-
-function createReferralCode(length: number = 8): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let code = '';
-  for (let i = 0; i < length; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return code;
-}
 
 export const register = async (req: Request, res: Response) => {
   let { email, phone, password, fullName, role, referralCode } = req.body;
@@ -140,9 +77,9 @@ export const register = async (req: Request, res: Response) => {
     });
 
     try {
-      await sendOTP(phone, otp);
+      await emailService.sendOTP(email, otp);
     } catch (err: any) {
-      console.warn('SMS send warning:', err.message);
+      console.warn('Email send warning:', err.message);
     }
 
     res.status(201).json({
@@ -240,12 +177,13 @@ export const verifyOTP = async (req: Request, res: Response) => {
 
 export const login = async (req: Request, res: Response) => {
   const { email, password } = req.body;
-
+  console.log(email, password, "EMAIL AND PASSWORD")
   try {
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
+    console.log(email, password, "EMAIL AND PASSWORD")
     const user = await db.query.users.findFirst({
       where: eq(users.email, email),
     });
@@ -321,6 +259,80 @@ export const getProfile = async (req: any, res: Response) => {
   }
 };
 
+
+
+
+/* ---- ---- ---  REVIEWED CODE ABOVE --- --- --- */
+
+
+
+
+
+
+
+/**
+ * Apply referral rewards when a new user registers or verifies
+ */
+async function applyReferralRewards(referrerId: string, newUserRole: string): Promise<void> {
+  if (!referrerId) return;
+
+  const referrer = await db.query.users.findFirst({
+    where: eq(users.id, referrerId),
+  });
+
+  if (!referrer) return;
+
+  // Increase referral count on referrer user record
+  const newCount = (referrer.referralCount || 0) + 1;
+  await db.update(users)
+    .set({ referralCount: newCount })
+    .where(eq(users.id, referrerId));
+
+  // Teacher reward: welfare boost when referring another teacher
+  if (referrer.role === 'teacher' && newUserRole === 'teacher') {
+    const profile = await db.query.teacherProfiles.findFirst({
+      where: eq(teacherProfiles.userId, referrerId),
+    });
+
+    if (profile) {
+      const currentWelfare = parseFloat(profile.welfareBalance?.toString() || '0');
+      const currentBoost = parseFloat(profile.referralWelfareBoost?.toString() || '0');
+
+      await db.update(teacherProfiles)
+        .set({
+          welfareBalance: (currentWelfare + TEACHER_REFERRAL_WELFARE_BOOST).toString(),
+          referralWelfareBoost: (currentBoost + TEACHER_REFERRAL_WELFARE_BOOST).toString(),
+        })
+        .where(eq(teacherProfiles.userId, referrerId));
+    }
+  }
+
+  // Parent reward: discount credit when referring another parent
+  if (referrer.role === 'parent' && newUserRole === 'parent') {
+    const profile = await db.query.parentProfiles.findFirst({
+      where: eq(parentProfiles.userId, referrerId),
+    });
+
+    if (profile) {
+      const currentDiscount = parseFloat(profile.referralDiscount?.toString() || '0');
+
+      await db.update(parentProfiles)
+        .set({
+          referralDiscount: (currentDiscount + PARENT_REFERRAL_DISCOUNT_VALUE).toString(),
+        })
+        .where(eq(parentProfiles.userId, referrerId));
+    }
+  }
+}
+
+function createReferralCode(length: number = 8): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let code = '';
+  for (let i = 0; i < length; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
 export const updateProfile = async (req: any, res: Response) => {
   try {
     const userId = req.user.id;

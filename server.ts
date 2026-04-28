@@ -8,6 +8,8 @@ import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './config/swagger';
 import { db } from './database/db';
 import { teacherProfiles } from './database/schema';
 import { eq } from 'drizzle-orm';
@@ -25,6 +27,8 @@ import adminRoutes from './routes/admin';
 import vaultRoutes from './routes/vault';
 import paystackRoutes from './routes/paystack';
 import lessonRoutes from './routes/lessons';
+import subjectRoutes from './routes/subjects';
+import courseRoutes from './routes/courses';
 
 import authenticateToken from './middleware/auth';
 import { initRedis } from './config/redis';
@@ -117,10 +121,15 @@ app.use('/api/progress-reports', progressRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/vault', vaultRoutes);
 app.use('/api/paystack', paystackRoutes);
+app.use('/api/subjects', subjectRoutes);
+app.use('/api/courses', courseRoutes);
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'Backend is running', timestamp: new Date() });
 });
+
+// Swagger Documentation Route
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: true }));
 
 // Error handling middleware
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {

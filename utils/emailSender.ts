@@ -1,70 +1,199 @@
 import nodemailer from 'nodemailer';
+import { BrevoClient } from '@getbrevo/brevo';
+import fs from 'fs';
+import path from 'path';
 
 /**
- * Send OTP via Email
- * @param {string} email - Email address
- * @param {string} otp - OTP to send
+ * Email Options Interface
  */
-export async function sendOTP(email: string, otp: string): Promise<void> {
-  try {
-    if (!email) {
-      console.log(`⚠️ Email address not provided`);
-      return;
+export interface EmailOptions {
+  to: string;
+  subject: string;
+  html: string;
+  from?: string;
+  fromName?: string;
+}
+
+/**
+ * Email Provider Interface
+ */
+export interface EmailProvider {
+  send(options: EmailOptions): Promise<void>;
+}
+
+/**
+ * Brevo Implementation using the latest @getbrevo/brevo SDK
+ */
+class BrevoProvider implements EmailProvider {
+  private brevo: BrevoClient | null = null;
+
+  constructor() {
+    try {
+      this.brevo = new BrevoClient({
+        apiKey: process.env.BREVO_API_KEY || '',
+      });
+    } catch (err) {
+      console.warn('⚠️ Brevo SDK initialization failed. Ensure @getbrevo/brevo is installed correctly.');
+    }
+  }
+
+  async send(options: EmailOptions): Promise<void> {
+    if (!this.brevo) {
+      throw new Error('Brevo SDK not initialized');
     }
 
-    // Check if Gmail credentials are provided
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-      console.log(`📧 [TEST MODE] OTP for ${email}: ${otp}`);
-      console.log(`✅ In production, this would be sent via email`);
-      return;
-    }
+    try {
+      const result = await this.brevo.transactionalEmails.sendTransacEmail({
+        subject: options.subject,
+        htmlContent: options.html,
+        sender: {
+          name: options.fromName || process.env.EMAIL_FROM_NAME || 'EduWins',
+          email: options.from || process.env.EMAIL_FROM || ''
+        },
+        to: [{ email: options.to }]
+      });
 
-    // Create transporter for Gmail
-    const transporter = nodemailer.createTransport({
+      console.log('✅ Brevo: Email sent successfully. Result:', result);
+    } catch (error: any) {
+      console.error('❌ Brevo Error:', error.message);
+      throw error;
+    }
+  }
+}
+
+/**
+ * Nodemailer (Gmail/SMTP) Implementation
+ */
+class GmailProvider implements EmailProvider {
+  private transporter: any;
+
+  constructor() {
+    this.transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASSWORD,
       },
     });
+  }
 
+  async send(options: EmailOptions): Promise<void> {
     const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'EduWins - Your OTP Verification Code',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; background-color: #f5f5f5; border-radius: 8px;">
-          <div style="background: linear-gradient(135deg, #001A72 0%, #FFB81C 100%); color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-            <h1 style="margin: 0; font-size: 28px;">EduWins</h1>
-            <p style="margin: 10px 0 0 0; font-size: 14px;">Your Code is Here</p>
-          </div>
-          <div style="background: white; padding: 30px; border-radius: 0 0 8px 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-            <p style="margin: 0 0 20px 0; color: #333; font-size: 14px;">Hello,</p>
-            <p style="margin: 0 0 20px 0; color: #555; font-size: 14px; line-height: 1.6;">
-              You requested a verification code for your EduWins account. Use the code below to verify your account:
-            </p>
-            <div style="background-color: #001A72; color: white; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
-              <p style="margin: 0; font-size: 32px; letter-spacing: 5px; font-weight: bold;">${otp}</p>
-            </div>
-            <p style="margin: 20px 0 0 0; color: #999; font-size: 12px;">
-              This code is valid for <strong>10 minutes</strong>. Do not share this code with anyone.
-            </p>
-            <p style="margin: 20px 0 0 0; color: #999; font-size: 12px;">
-              If you didn't request this code, ignore this email.
-            </p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-            <p style="margin: 10px 0; color: #999; font-size: 12px; text-align: center;">
-              © 2024 EduWins. All rights reserved.
-            </p>
-          </div>
-        </div>
-      `,
+      from: `"${options.fromName || process.env.EMAIL_FROM_NAME || 'EduWins'}" <${options.from || process.env.EMAIL_USER}>`,
+      to: options.to,
+      subject: options.subject,
+      html: options.html,
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`✅ Email sent to ${email} (Message ID: ${info.messageId})`);
-  } catch (error: any) {
-    console.error(`⚠️ Email sending failed (non-critical):`, error.message);
-    // Don't throw - let registration continue even if email fails
+    const info = await this.transporter.sendMail(mailOptions);
+    console.log('✅ Gmail: Email sent. Message ID:', info.messageId);
   }
 }
+
+
+/**
+ * Email Service Manager
+ */
+export class EmailService {
+  private provider: EmailProvider;
+  private templatesPath: string;
+
+  constructor() {
+    this.templatesPath = path.join(process.cwd(), 'templates', 'emails');
+    const providerType = (process.env.EMAIL_PROVIDER || 'test').toLowerCase();
+
+    switch (providerType) {
+      case 'brevo':
+        this.provider = new BrevoProvider();
+        break;
+      case 'gmail':
+        this.provider = new GmailProvider();
+        break;
+      default:
+        this.provider = new BrevoProvider();
+        break;
+    }
+  }
+
+  /**
+   * Load and parse a template file
+   */
+  private loadTemplate(templateName: string, data: Record<string, string>): string {
+    const filePath = path.join(this.templatesPath, `${templateName}.html`);
+
+    if (!fs.existsSync(filePath)) {
+      console.error(`❌ Template not found: ${filePath}`);
+      return '';
+    }
+
+    let content = fs.readFileSync(filePath, 'utf8');
+
+    // Replace placeholders {{key}} with data[key]
+    Object.keys(data).forEach(key => {
+      const placeholder = new RegExp(`{{${key}}}`, 'g');
+      content = content.replace(placeholder, data[key]);
+    });
+
+    return content;
+  }
+
+  /**
+   * Generic send method
+   */
+  async sendEmail(options: EmailOptions): Promise<void> {
+    try {
+      if (!options.to) {
+        console.warn('⚠️ Recipient email missing');
+        return;
+      }
+      await this.provider.send(options);
+    } catch (error: any) {
+      console.error('⚠️ Email service failed:', error.message);
+    }
+  }
+
+  /**
+   * Specific helper for OTP
+   */
+  async sendOTP(email: string, otp: string): Promise<void> {
+    const html = this.loadTemplate('otp', { otp });
+
+    if (!html) {
+      console.error('❌ Failed to load OTP template');
+      return;
+    }
+
+    await this.sendEmail({
+      to: email,
+      subject: 'EduWins - Your OTP Verification Code',
+      html,
+    });
+  }
+
+  /**
+   * Send Welcome Email
+   */
+  async sendWelcomeEmail(email: string, fullName: string): Promise<void> {
+    const html = this.loadTemplate('welcome', {
+      fullName,
+      loginUrl: process.env.FRONTEND_URL || 'https://eduwins.com/login'
+    });
+
+    if (!html) {
+      console.error('❌ Failed to load welcome template');
+      return;
+    }
+
+    await this.sendEmail({
+      to: email,
+      subject: 'Welcome to EduWins',
+      html,
+    });
+  }
+}
+
+// Export singleton instance
+export const emailService = new EmailService();
+
+// Backward compatibility export
+export const sendOTP = (email: string, otp: string) => emailService.sendOTP(email, otp);
