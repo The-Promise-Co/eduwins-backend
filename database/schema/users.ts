@@ -67,14 +67,26 @@ export const parentProfiles = pgTable('parent_profiles', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-export const otps = pgTable('otps', {
-  phone: varchar('phone', { length: 50 }).primaryKey(),
-  otp: varchar('otp', { length: 10 }).notNull(),
+/**
+ * verification_tokens
+ * Looked up by token to validate the OTP the user entered.
+ * type supports future contexts: 'register' | 'login' | 'payment' | 'password_reset'
+ */
+export const verificationTokens = pgTable('verification_tokens', {
+  id:        varchar('id',      { length: 255 }).primaryKey(),
+  userId:    varchar('user_id', { length: 255 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  token:     varchar('token',   { length: 255 }).notNull().unique(),  // returned to frontend, stored in sessionStorage
+  otp:       varchar('otp',     { length: 10  }).notNull(),           // 6-digit code sent via email
+  type:      varchar('type',    { length: 50  }).notNull(),           // 'register' | 'login' | 'payment' | 'password_reset'
   expiresAt: timestamp('expires_at').notNull(),
+  usedAt:    timestamp('used_at'),                                    // null = not yet consumed
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-export type User = InferSelectModel<typeof users>;
-export type NewUser = InferInsertModel<typeof users>;
-export type TeacherProfile = InferSelectModel<typeof teacherProfiles>;
-export type ParentProfile = InferSelectModel<typeof parentProfiles>;
+
+export type User              = InferSelectModel<typeof users>;
+export type NewUser           = InferInsertModel<typeof users>;
+export type TeacherProfile    = InferSelectModel<typeof teacherProfiles>;
+export type ParentProfile     = InferSelectModel<typeof parentProfiles>;
+export type VerificationToken = InferSelectModel<typeof verificationTokens>;
+

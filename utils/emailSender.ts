@@ -153,19 +153,25 @@ export class EmailService {
   }
 
   /**
-   * Specific helper for OTP
+   * Send verification email (OTP only)
    */
-  async sendOTP(email: string, otp: string): Promise<void> {
-    const html = this.loadTemplate('otp', { otp });
+  async sendVerificationEmail(email: string, otp: string): Promise<void> {
+    const html = this.loadTemplate('verification', { otp });
 
     if (!html) {
-      console.error('❌ Failed to load OTP template');
+      console.error('❌ Failed to load verification template');
+      // Fallback if template is missing
+      await this.sendEmail({
+        to: email,
+        subject: 'EduWins - Verify your email address',
+        html: `<h2>Welcome to EduWins!</h2><p>Your verification code is: <strong>${otp}</strong></p>`,
+      });
       return;
     }
 
     await this.sendEmail({
       to: email,
-      subject: 'EduWins - Your OTP Verification Code',
+      subject: 'EduWins - Verify your email address',
       html,
     });
   }
@@ -194,6 +200,3 @@ export class EmailService {
 
 // Export singleton instance
 export const emailService = new EmailService();
-
-// Backward compatibility export
-export const sendOTP = (email: string, otp: string) => emailService.sendOTP(email, otp);

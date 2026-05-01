@@ -8,6 +8,27 @@
       "when": 1776256664700,
       "tag": "0000_wild_doctor_octopus",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777463978782,
+      "tag": "0001_glossy_firebird",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777638123236,
+      "tag": "0002_boring_wendigo",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1777638252586,
+      "tag": "0003_cool_zeigeist",
+      "breakpoints": true
     }
   ]
 }

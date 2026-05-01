@@ -2,10 +2,12 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { db } from '../database/db';
-import { users, teacherProfiles, parentProfiles, otps } from '../database/schema';
-import { eq, or } from 'drizzle-orm';
+import { users, teacherProfiles, parentProfiles, verificationTokens } from '../database/schema';
+import { eq, or, and } from 'drizzle-orm';
 import { emailService } from '../utils/emailSender';
 import { generateOTP } from '../utils/otpGenerator';
+import crypto from 'crypto';
+import logger from '../utils/logger';
 
 const TEACHER_REFERRAL_WELFARE_BOOST = 1500; // ₦1,500 welfare boost per referral
 const PARENT_REFERRAL_DISCOUNT_VALUE = 1000; // ₦1,000 booking credit per referral
@@ -65,55 +67,75 @@ export const register = async (req: Request, res: Response) => {
 
     await db.insert(users).values(newUser);
 
-    // Store OTP temporarily
-    const otpExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
-    await db.insert(otps).values({
-      phone,
+    // Generate secure token and expiry (15 mins)
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const otpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+
+    // Store in verification_tokens
+    await db.insert(verificationTokens).values({
+      id: Math.random().toString(36).substring(2, 15),
+      userId,
+      token: verificationToken,
       otp,
+      type: 'register',
       expiresAt: otpExpiry,
-    }).onConflictDoUpdate({
-      target: otps.phone,
-      set: { otp, expiresAt: otpExpiry }
     });
 
     try {
-      await emailService.sendOTP(email, otp);
+      await emailService.sendVerificationEmail(email, otp);
     } catch (err: any) {
-      console.warn('Email send warning:', err.message);
+      logger.warn({ err }, 'Email send warning');
     }
 
     res.status(201).json({
       message: 'User registered. OTP sent.',
       userId,
       referralCode: generatedReferralCode,
+      verificationToken, // sent to frontend to store in sessionStorage
       testOTP: process.env.NODE_ENV === 'development' ? otp : undefined,
     });
+    logger.info({ userId, email, role }, 'New user registered successfully');
   } catch (err: any) {
-    console.error('Registration error:', err);
-    res.status(500).json({ error: 'Registration failed: ' + err.message });
+    logger.error({ err }, 'Registration error');
+    res.status(500).json({ error: 'Registration failed. Please try again later.' });
   }
 };
 
-export const verifyOTP = async (req: Request, res: Response) => {
-  const { phone, otp } = req.body;
+export const verifyEmail = async (req: Request, res: Response) => {
+  const { token, otp } = req.body;
 
   try {
-    if (!phone || !otp) {
-      return res.status(400).json({ error: 'Phone and OTP required' });
+    if (!token || !otp) {
+      return res.status(400).json({ error: 'Token and OTP required' });
     }
 
-    // Get stored OTP
-    const storedOtpRecord = await db.query.otps.findFirst({
-      where: eq(otps.phone, phone),
+    // Lookup token record
+    const tokenRecord = await db.query.verificationTokens.findFirst({
+      where: and(
+        eq(verificationTokens.token, token),
+        eq(verificationTokens.type, 'register')
+      ),
     });
 
-    if (process.env.NODE_ENV !== 'development' && (!storedOtpRecord || storedOtpRecord.otp !== otp || new Date() > storedOtpRecord.expiresAt)) {
-      return res.status(400).json({ error: 'Invalid or expired OTP' });
+    if (!tokenRecord) {
+      return res.status(400).json({ error: 'Invalid or expired token' });
     }
 
-    // Find user by phone
+    if (tokenRecord.usedAt) {
+      return res.status(400).json({ error: 'This verification link has already been used' });
+    }
+
+    if (new Date() > tokenRecord.expiresAt) {
+      return res.status(400).json({ error: 'Verification OTP has expired' });
+    }
+
+    if (process.env.NODE_ENV !== 'development' && tokenRecord.otp !== otp) {
+      return res.status(400).json({ error: 'Invalid OTP code' });
+    }
+
+    // Get the user
     const user = await db.query.users.findFirst({
-      where: eq(users.phone, phone),
+      where: eq(users.id, tokenRecord.userId),
     });
 
     if (!user) {
@@ -124,6 +146,11 @@ export const verifyOTP = async (req: Request, res: Response) => {
     await db.update(users)
       .set({ isVerified: true })
       .where(eq(users.id, user.id));
+
+    // Mark token as used
+    await db.update(verificationTokens)
+      .set({ usedAt: new Date() })
+      .where(eq(verificationTokens.id, tokenRecord.id));
 
     // Create profile based on role
     if (user.role === 'teacher') {
@@ -153,13 +180,10 @@ export const verifyOTP = async (req: Request, res: Response) => {
         .where(eq(users.id, user.id));
     }
 
-    // Clear OTP
-    await db.delete(otps).where(eq(otps.phone, phone));
-
-    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
+    const jwtToken = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
 
     res.json({
-      token,
+      token: jwtToken,
       role: user.role,
       user: {
         id: user.id,
@@ -169,21 +193,20 @@ export const verifyOTP = async (req: Request, res: Response) => {
         referralCode: user.referralCode,
       },
     });
+    logger.info({ userId: user.id, role: user.role }, 'User email verified successfully');
   } catch (err: any) {
-    console.error('OTP verification error:', err);
-    res.status(500).json({ error: 'OTP verification failed: ' + err.message });
+    logger.error({ err }, 'Email verification error');
+    res.status(500).json({ error: 'Verification failed. Please try again later.' });
   }
 };
 
 export const login = async (req: Request, res: Response) => {
   const { email, password } = req.body;
-  console.log(email, password, "EMAIL AND PASSWORD")
   try {
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    console.log(email, password, "EMAIL AND PASSWORD")
     const user = await db.query.users.findFirst({
       where: eq(users.email, email),
     });
@@ -220,9 +243,10 @@ export const login = async (req: Request, res: Response) => {
         welfareBoost: teacherProfile?.referralWelfareBoost || 0,
       },
     });
+    logger.info({ userId: user.id, role: user.role }, 'User logged in successfully');
   } catch (err: any) {
-    console.error('Login error:', err);
-    res.status(500).json({ error: 'Login failed: ' + err.message });
+    logger.error({ err }, 'Login error');
+    res.status(500).json({ error: 'Login failed. Please try again later.' });
   }
 };
 
@@ -254,7 +278,7 @@ export const getProfile = async (req: any, res: Response) => {
       welfareBalance: teacherProfile?.welfareBalance || 0,
     });
   } catch (err: any) {
-    console.error('Could not fetch profile:', err);
+    logger.error({ err }, 'Could not fetch profile');
     res.status(500).json({ error: 'Unable to fetch profile' });
   }
 };
@@ -361,9 +385,10 @@ export const updateProfile = async (req: any, res: Response) => {
         photoUrl: photoUrl || '',
       },
     });
+    logger.info({ userId }, 'User profile updated successfully');
   } catch (err: any) {
-    console.error('Profile update error:', err);
-    res.status(500).json({ error: 'Failed to update profile: ' + err.message });
+    logger.error({ err }, 'Profile update error');
+    res.status(500).json({ error: 'Failed to update profile. Please try again later.' });
   }
 };
 

@@ -1,10 +1,10 @@
 import express from 'express';
 import authenticateToken from '../middleware/auth';
-import { 
-  register, 
-  verifyOTP, 
-  login, 
-  getProfile, 
+import {
+  register,
+  verifyEmail,
+  login,
+  getProfile,
   updateProfile,
   // socialRegister, 
   // socialLogin 
@@ -50,9 +50,9 @@ router.post('/register', register as any);
 
 /**
  * @swagger
- * /auth/verify-otp:
+ * /auth/verify-email:
  *   post:
- *     summary: Verify OTP and complete registration
+ *     summary: Verify email token and OTP
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -61,15 +61,15 @@ router.post('/register', register as any);
  *           schema:
  *             type: object
  *             properties:
- *               phone:
+ *               token:
  *                 type: string
  *               otp:
  *                 type: string
  *     responses:
  *       200:
- *         description: User verified successfully
+ *         description: Email verified successfully
  */
-router.post('/verify-otp', verifyOTP as any);
+router.post('/verify-email', verifyEmail as any);
 
 /**
  * @swagger
