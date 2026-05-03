@@ -14,24 +14,33 @@ const PARENT_REFERRAL_DISCOUNT_VALUE = 1000; // ₦1,000 booking credit per refe
 
 
 export const register = async (req: Request, res: Response) => {
-  let { email, phone, password, fullName, role, referralCode } = req.body;
+  let { email, phone, password, firstName, lastName, role, referralCode } = req.body;
 
   if (role === 'tutor') {
     role = 'teacher';
   }
 
   try {
-    if (!email || !phone || !password || !fullName || !role) {
+    if (!email || !password || !firstName || !lastName || !role) {
       return res.status(400).json({ error: 'All required fields must be provided' });
     }
 
-    // Check if user exists by email or phone
-    const existingUser = await db.query.users.findFirst({
-      where: or(eq(users.email, email), eq(users.phone, phone)),
+    // Check if user exists by email
+    const existingEmail = await db.query.users.findFirst({
+      where: eq(users.email, email),
     });
 
-    if (existingUser) {
-      return res.status(400).json({ error: 'Email or phone already registered' });
+    if (existingEmail) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    if (phone) {
+      const existingPhone = await db.query.users.findFirst({
+        where: eq(users.phone, phone),
+      });
+      if (existingPhone) {
+        return res.status(400).json({ error: 'Phone number already registered' });
+      }
     }
 
     const hashed = await bcrypt.hash(password, 10);
@@ -53,9 +62,10 @@ export const register = async (req: Request, res: Response) => {
     const newUser = {
       id: userId,
       email,
-      phone,
+      phone: phone || null,
       passwordHash: hashed,
-      fullName,
+      firstName,
+      lastName,
       role,
       isVerified: false,
       trustScore: 0,
@@ -187,7 +197,9 @@ export const verifyEmail = async (req: Request, res: Response) => {
       role: user.role,
       user: {
         id: user.id,
-        fullName: user.fullName,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        fullName: `${user.firstName} ${user.lastName}`,
         email: user.email,
         role: user.role,
         referralCode: user.referralCode,
@@ -215,13 +227,36 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    if (!user.isVerified) {
-      return res.status(403).json({ error: 'Please verify OTP before login' });
-    }
-
     const valid = await bcrypt.compare(password, user.passwordHash || '');
     if (!valid) {
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    if (!user.isVerified) {
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      const otpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+      const otp = generateOTP();
+
+      await db.insert(verificationTokens).values({
+        id: Math.random().toString(36).substring(2, 15),
+        userId: user.id,
+        token: verificationToken,
+        otp,
+        type: 'register',
+        expiresAt: otpExpiry,
+      });
+
+      try {
+        await emailService.sendVerificationEmail(user.email, otp);
+      } catch (err: any) {
+        logger.warn({ err }, 'Email send warning');
+      }
+
+      return res.status(403).json({
+        error: 'Account not verified. A new OTP has been sent to your email.',
+        requiresVerification: true,
+        verificationToken
+      });
     }
 
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
@@ -234,7 +269,9 @@ export const login = async (req: Request, res: Response) => {
       role: user.role,
       user: {
         id: user.id,
-        fullName: user.fullName,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        fullName: `${user.firstName} ${user.lastName}`,
         email: user.email,
         role: user.role,
         referralCode: user.referralCode,
@@ -247,6 +284,56 @@ export const login = async (req: Request, res: Response) => {
   } catch (err: any) {
     logger.error({ err }, 'Login error');
     res.status(500).json({ error: 'Login failed. Please try again later.' });
+  }
+};
+
+export const resendOtp = async (req: Request, res: Response) => {
+  const { token } = req.body;
+  try {
+    if (!token) {
+      return res.status(400).json({ error: 'Verification token required' });
+    }
+
+    const tokenRecord = await db.query.verificationTokens.findFirst({
+      where: eq(verificationTokens.token, token),
+    });
+
+    if (!tokenRecord) {
+      return res.status(404).json({ error: 'Token not found. Please log in again.' });
+    }
+
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, tokenRecord.userId),
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    if (user.isVerified) {
+      return res.status(400).json({ error: 'User is already verified.' });
+    }
+
+    const otp = generateOTP();
+    const otpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+
+    await db.update(verificationTokens)
+      .set({
+        otp,
+        expiresAt: otpExpiry,
+      })
+      .where(eq(verificationTokens.id, tokenRecord.id));
+
+    try {
+      await emailService.sendVerificationEmail(user.email, otp);
+    } catch (err: any) {
+      logger.warn({ err }, 'Email send warning');
+    }
+
+    res.json({ message: 'OTP resent successfully.' });
+  } catch (err: any) {
+    logger.error({ err }, 'Resend OTP error');
+    res.status(500).json({ error: 'Failed to resend OTP. Please try again later.' });
   }
 };
 
@@ -267,7 +354,9 @@ export const getProfile = async (req: any, res: Response) => {
 
     res.json({
       id: user.id,
-      fullName: user.fullName,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      fullName: `${user.firstName} ${user.lastName}`,
       email: user.email,
       role: user.role,
       referralCode: user.referralCode,
@@ -360,14 +449,15 @@ function createReferralCode(length: number = 8): string {
 export const updateProfile = async (req: any, res: Response) => {
   try {
     const userId = req.user.id;
-    const { fullName, bio, photoUrl } = req.body;
+    const { firstName, lastName, bio, photoUrl } = req.body;
 
-    if (!fullName) {
-      return res.status(400).json({ error: 'Full name is required' });
+    if (!firstName || !lastName) {
+      return res.status(400).json({ error: 'First name and last name are required' });
     }
 
     const updateData: any = {
-      fullName: fullName,
+      firstName,
+      lastName,
     };
 
     if (bio) updateData.bio = bio;
@@ -380,7 +470,9 @@ export const updateProfile = async (req: any, res: Response) => {
     res.json({
       message: 'Profile updated successfully',
       data: {
-        fullName,
+        firstName,
+        lastName,
+        fullName: `${firstName} ${lastName}`,
         bio: bio || '',
         photoUrl: photoUrl || '',
       },

@@ -208,7 +208,7 @@ export const getApplications = async (req: Request, res: Response) => {
     const formattedApps = apps.map(row => ({
       ...row.application,
       teacherDetails: {
-        name: row.teacher?.fullName,
+        name: row.teacher ? `${row.teacher.firstName} ${row.teacher.lastName}` : undefined,
         email: row.teacher?.email,
         phone: row.teacher?.phone,
         trustScore: row.teacher?.trustScore,

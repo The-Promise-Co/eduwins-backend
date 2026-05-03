@@ -36,13 +36,13 @@ export const getParentChildren = async (req: AuthenticatedRequest, res: Response
     // Joining users and bookings to find children of this parent
     const children = await db.select({
       id: users.id,
-      name: users.fullName,
+      name: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
       email: users.email,
     })
     .from(users)
     .innerJoin(bookings, eq(bookings.childId, users.id))
     .where(eq(bookings.parentId, parentId))
-    .groupBy(users.id, users.fullName, users.email);
+    .groupBy(users.id, users.firstName, users.lastName, users.email);
 
     res.json({ children });
   } catch (err: any) {
@@ -61,7 +61,7 @@ export const getParentPendingConfirmations = async (req: AuthenticatedRequest, r
       subject: lessons.subject,
       scheduled_time: lessons.scheduledTime,
       status: lessons.status,
-      teacher_name: users.fullName,
+      teacher_name: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
       teacher_phone: users.phone,
     })
     .from(lessons)

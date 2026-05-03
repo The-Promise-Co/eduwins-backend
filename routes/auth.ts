@@ -6,6 +6,7 @@ import {
   login,
   getProfile,
   updateProfile,
+  resendOtp,
   // socialRegister, 
   // socialLogin 
 } from '../controllers/authController';
@@ -70,6 +71,7 @@ router.post('/register', register as any);
  *         description: Email verified successfully
  */
 router.post('/verify-email', verifyEmail as any);
+router.post('/resend-otp', resendOtp as any);
 
 /**
  * @swagger

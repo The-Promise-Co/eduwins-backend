@@ -10,6 +10,9 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+pool.query('SELECT NOW()').then((res) => {
+  console.log('Database connected at', res.rows[0].now);
+});
 export const db = drizzle(pool, { schema });
 
 export { pool };

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../database/db';
 import { progressReports, parentProfiles, teacherProfiles, users } from '../database/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, sql } from 'drizzle-orm';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -90,7 +90,7 @@ export const getReports = async (req: AuthenticatedRequest, res: Response) => {
       homeworkCompletion: progressReports.homeworkCompletion,
       notes: progressReports.notes,
       createdAt: progressReports.createdAt,
-      teacher_name: users.fullName,
+      teacher_name: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
     })
     .from(progressReports)
     .innerJoin(users, eq(progressReports.teacherId, users.id))

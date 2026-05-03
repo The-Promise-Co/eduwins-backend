@@ -40,6 +40,40 @@ router.post('/credentials', authenticateToken, upload.single('credentials'), upl
 router.get('/profile-completion', authenticateToken, getProfileCompletion as any);
 
 /**
+ * Cloudinary Signed Upload
+ * Returns timestamp + signature so the frontend can upload directly to Cloudinary
+ * without exposing the API secret.
+ */
+router.post('/sign', authenticateToken, (req, res) => {
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  if (!apiSecret) {
+    return res.status(500).json({ error: 'Cloudinary API secret not configured' });
+  }
+
+  const crypto = require('crypto');
+  const timestamp = Math.round(Date.now() / 1000);
+  const folder = (req.body?.folder as string) || 'eduwins';
+
+  // Sort and stringify params to sign
+  const paramsToSign: Record<string, string | number> = { folder, timestamp };
+  const stringToSign =
+    Object.keys(paramsToSign)
+      .sort()
+      .map(k => `${k}=${paramsToSign[k]}`)
+      .join('&') + apiSecret;
+
+  const signature = crypto.createHash('sha1').update(stringToSign).digest('hex');
+
+  res.json({
+    signature,
+    timestamp,
+    folder,
+    apiKey: process.env.CLOUDINARY_API_KEY,
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+  });
+});
+
+/**
  * Premium Uploads
  */
 router.post('/subject-video', authenticateToken, upload.single('video'), uploadSubjectVideo as any);

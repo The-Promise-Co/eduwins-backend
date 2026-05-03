@@ -26,7 +26,7 @@ export const getVaultItems = async (req: Request, res: Response) => {
       previewUrl: digitalVault.previewUrl,
       isActive: digitalVault.isActive,
       createdAt: digitalVault.createdAt,
-      teacher_name: users.fullName,
+      teacher_name: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
       rating_avg: teacherProfiles.ratingAvg,
       total_sessions: teacherProfiles.totalSessions,
     })
@@ -64,7 +64,7 @@ export const getVaultItem = async (req: Request, res: Response) => {
       previewUrl: digitalVault.previewUrl,
       isActive: digitalVault.isActive,
       createdAt: digitalVault.createdAt,
-      teacher_name: users.fullName,
+      teacher_name: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
       rating_avg: teacherProfiles.ratingAvg,
       total_sessions: teacherProfiles.totalSessions,
     })
@@ -245,7 +245,7 @@ export const getMyPurchases = async (req: AuthenticatedRequest, res: Response) =
       itemDescription: digitalVault.description,
       subject: digitalVault.subject,
       contentType: digitalVault.contentType,
-      teacherName: users.fullName,
+      teacherName: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
     })
     .from(vaultPurchases)
     .innerJoin(digitalVault, eq(vaultPurchases.itemId, digitalVault.id))

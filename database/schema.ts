@@ -1,5 +1,6 @@
 export * from './schema/system';
 export * from './schema/users';
+export * from './schema/teacherProfiles';
 export * from './schema/lessons';
 export * from './schema/housing';
 export * from './schema/premium';
