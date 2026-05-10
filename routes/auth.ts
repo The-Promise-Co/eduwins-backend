@@ -7,8 +7,11 @@ import {
   getProfile,
   updateProfile,
   resendOtp,
-  // socialRegister, 
-  // socialLogin 
+  forgotPassword,
+  validateResetToken,
+  resetPassword,
+  // socialRegister,
+  // socialLogin
 } from '../controllers/authController';
 
 const router = express.Router();
@@ -95,6 +98,24 @@ router.post('/resend-otp', resendOtp as any);
  *         description: Login successful
  */
 router.post('/login', login as any);
+
+/**
+ * POST /api/auth/forgot-password
+ * Request a password reset link via email
+ */
+router.post('/forgot-password', forgotPassword as any);
+
+/**
+ * GET /api/auth/validate-reset-token?token=...
+ * Validate a password reset token without consuming it
+ */
+router.get('/validate-reset-token', validateResetToken as any);
+
+/**
+ * POST /api/auth/reset-password
+ * Set a new password using a valid reset token
+ */
+router.post('/reset-password', resetPassword as any);
 
 /**
  * GET /api/auth/me

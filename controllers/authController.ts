@@ -382,6 +382,156 @@ export const getProfile = async (req: any, res: Response) => {
 
 
 
+/**
+ * POST /auth/forgot-password
+ * Accepts an email, creates a password_reset token, and emails a magic link.
+ */
+export const forgotPassword = async (req: Request, res: Response) => {
+  const { email } = req.body;
+
+  // Always return the same response to prevent user enumeration
+  const safeResponse = () =>
+    res.json({ message: 'If that email is registered, a reset link has been sent.' });
+
+  try {
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const user = await db.query.users.findFirst({
+      where: eq(users.email, email),
+    });
+
+    if (!user) {
+      // Respond 200 even when user not found — prevents enumeration
+      return safeResponse();
+    }
+
+    // Create a secure reset token (1-hour expiry)
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await db.insert(verificationTokens).values({
+      id: Math.random().toString(36).substring(2, 15),
+      userId: user.id,
+      token: resetToken,
+      otp: '000000', // Not used for password reset; required by schema
+      type: 'password_reset',
+      expiresAt,
+    });
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+    try {
+      await emailService.sendPasswordResetEmail(user.email, resetUrl);
+    } catch (err: any) {
+      logger.warn({ err }, 'Password reset email send warning');
+    }
+
+    logger.info({ userId: user.id }, 'Password reset requested');
+    return safeResponse();
+  } catch (err: any) {
+    logger.error({ err }, 'Forgot password error');
+    res.status(500).json({ error: 'Something went wrong. Please try again later.' });
+  }
+};
+
+/**
+ * GET /auth/validate-reset-token?token=...
+ * Validates a password reset token without consuming it.
+ * Returns { valid: true } or { valid: false, error: '...' }
+ */
+export const validateResetToken = async (req: Request, res: Response) => {
+  const { token } = req.query as { token?: string };
+
+  try {
+    if (!token) {
+      return res.status(400).json({ valid: false, error: 'Token is required' });
+    }
+
+    const tokenRecord = await db.query.verificationTokens.findFirst({
+      where: and(
+        eq(verificationTokens.token, token),
+        eq(verificationTokens.type, 'password_reset')
+      ),
+    });
+
+    if (!tokenRecord) {
+      return res.status(400).json({ valid: false, error: 'Invalid or expired reset link' });
+    }
+
+    if (tokenRecord.usedAt) {
+      return res.status(400).json({ valid: false, error: 'This reset link has already been used' });
+    }
+
+    if (new Date() > tokenRecord.expiresAt) {
+      return res.status(400).json({ valid: false, error: 'This reset link has expired' });
+    }
+
+    return res.json({ valid: true });
+  } catch (err: any) {
+    logger.error({ err }, 'Validate reset token error');
+    res.status(500).json({ valid: false, error: 'Something went wrong. Please try again later.' });
+  }
+};
+
+/**
+ * POST /auth/reset-password
+ * Validates the token, hashes the new password, updates the user, marks the token used.
+ */
+export const resetPassword = async (req: Request, res: Response) => {
+  const { token, newPassword } = req.body;
+
+  try {
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: 'Token and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    const tokenRecord = await db.query.verificationTokens.findFirst({
+      where: and(
+        eq(verificationTokens.token, token),
+        eq(verificationTokens.type, 'password_reset')
+      ),
+    });
+
+    if (!tokenRecord) {
+      return res.status(400).json({ error: 'Invalid or expired reset link' });
+    }
+
+    if (tokenRecord.usedAt) {
+      return res.status(400).json({ error: 'This reset link has already been used' });
+    }
+
+    if (new Date() > tokenRecord.expiresAt) {
+      return res.status(400).json({ error: 'This reset link has expired' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    await db.update(users)
+      .set({ passwordHash })
+      .where(eq(users.id, tokenRecord.userId));
+
+    await db.update(verificationTokens)
+      .set({ usedAt: new Date() })
+      .where(eq(verificationTokens.id, tokenRecord.id));
+
+    logger.info({ userId: tokenRecord.userId }, 'Password reset successfully');
+    res.json({ message: 'Password reset successfully. You can now log in with your new password.' });
+  } catch (err: any) {
+    logger.error({ err }, 'Reset password error');
+    res.status(500).json({ error: 'Something went wrong. Please try again later.' });
+  }
+};
+
+
+
+
 
 /**
  * Apply referral rewards when a new user registers or verifies

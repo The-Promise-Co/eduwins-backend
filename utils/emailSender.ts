@@ -18,7 +18,7 @@ export interface EmailOptions {
  * Email Provider Interface
  */
 export interface EmailProvider {
-  send(options: EmailOptions): Promise<void>;
+  send(options: EmailOptions): Promise<any>;
 }
 
 /**
@@ -37,27 +37,22 @@ class BrevoProvider implements EmailProvider {
     }
   }
 
-  async send(options: EmailOptions): Promise<void> {
+  async send(options: EmailOptions): Promise<any> {
     if (!this.brevo) {
       throw new Error('Brevo SDK not initialized');
     }
 
-    try {
-      const result = await this.brevo.transactionalEmails.sendTransacEmail({
-        subject: options.subject,
-        htmlContent: options.html,
-        sender: {
-          name: options.fromName || process.env.EMAIL_FROM_NAME || 'EduWins',
-          email: options.from || process.env.EMAIL_FROM || ''
-        },
-        to: [{ email: options.to }]
-      });
+    const result = await this.brevo.transactionalEmails.sendTransacEmail({
+      subject: options.subject,
+      htmlContent: options.html,
+      sender: {
+        name: options.fromName || process.env.EMAIL_FROM_NAME || 'EduWins',
+        email: options.from || process.env.EMAIL_FROM || ''
+      },
+      to: [{ email: options.to }]
+    });
 
-      console.log('✅ Brevo: Email sent successfully. Result:', result);
-    } catch (error: any) {
-      console.error('❌ Brevo Error:', error.message);
-      throw error;
-    }
+    return result;
   }
 }
 
@@ -77,7 +72,7 @@ class GmailProvider implements EmailProvider {
     });
   }
 
-  async send(options: EmailOptions): Promise<void> {
+  async send(options: EmailOptions): Promise<any> {
     const mailOptions = {
       from: `"${options.fromName || process.env.EMAIL_FROM_NAME || 'EduWins'}" <${options.from || process.env.EMAIL_USER}>`,
       to: options.to,
@@ -86,7 +81,7 @@ class GmailProvider implements EmailProvider {
     };
 
     const info = await this.transporter.sendMail(mailOptions);
-    console.log('✅ Gmail: Email sent. Message ID:', info.messageId);
+    return info;
   }
 }
 
@@ -141,14 +136,39 @@ export class EmailService {
    * Generic send method
    */
   async sendEmail(options: EmailOptions): Promise<void> {
+    const isDev = process.env.NODE_ENV === 'development';
+    const provider = (process.env.EMAIL_PROVIDER || 'brevo').toLowerCase();
+
+    if (!options.to) {
+      console.warn('⚠️ Recipient email missing — send skipped');
+      return;
+    }
+
     try {
-      if (!options.to) {
-        console.warn('⚠️ Recipient email missing');
-        return;
+      const response = await this.provider.send(options);
+
+      if (isDev) {
+        console.log('✅ [DEV] Email sent successfully:', {
+          provider,
+          to: options.to,
+          subject: options.subject,
+          from: options.from || process.env.EMAIL_FROM,
+          providerResponse: response,
+        });
       }
-      await this.provider.send(options);
     } catch (error: any) {
-      console.error('⚠️ Email service failed:', error.message);
+      if (isDev) {
+        console.error('❌ [DEV] Email send FAILED:', {
+          provider,
+          to: options.to,
+          subject: options.subject,
+          error: error.message,
+          details: error.response?.data ?? error.response ?? null,
+        });
+      } else {
+        console.error('⚠️ Email service failed:', error.message);
+      }
+      throw error; // re-throw so callers know the send failed
     }
   }
 
@@ -193,6 +213,30 @@ export class EmailService {
     await this.sendEmail({
       to: email,
       subject: 'Welcome to EduWins',
+      html,
+    });
+  }
+
+  /**
+   * Send Password Reset Email
+   */
+  async sendPasswordResetEmail(email: string, resetUrl: string): Promise<void> {
+    const html = this.loadTemplate('password_reset', { resetUrl });
+
+    if (!html) {
+      console.error('❌ Failed to load password_reset template');
+      // Fallback if template is missing
+      await this.sendEmail({
+        to: email,
+        subject: 'EduWins - Reset Your Password',
+        html: `<h2>Reset your EduWins password</h2><p>Click the link below to reset your password (valid for 1 hour):</p><p><a href="${resetUrl}">${resetUrl}</a></p>`,
+      });
+      return;
+    }
+
+    await this.sendEmail({
+      to: email,
+      subject: 'EduWins - Reset Your Password',
       html,
     });
   }
