@@ -11,6 +11,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import { users } from "./users";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,9 @@ export const courses = pgTable(
     price: numeric("price", { precision: 10, scale: 2 }),  // null when is_free = true
     is_free: boolean("is_free").notNull().default(false),
     status: courseStatusEnum("status").notNull().default("draft"),
+    teacher_id: varchar("teacher_id", { length: 255 }).references(() => users.id),
+    enrolled_count: integer("enrolled_count").notNull().default(0),
+    rating_avg: numeric("rating_avg", { precision: 3, scale: 1 }).notNull().default("0"),
     tags: varchar("tags", { length: 500 }),               // comma-separated
     thumbnail_url: text("thumbnail_url"),
     created_at: timestamp("created_at").notNull().defaultNow(),

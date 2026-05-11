@@ -32,6 +32,7 @@ import courseRoutes from './routes/courses';
 
 import authenticateToken from './middleware/auth';
 import { initRedis } from './config/redis';
+import logger from './utils/logger';
 
 const app = express();
 // initRedis();
@@ -74,9 +75,50 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(uploadsDir));
 
-// Request logging middleware
+// ── Request / Response logger ──────────────────────────────────────────────
 app.use((req: Request, res: Response, next: NextFunction) => {
-  console.log(`${req.method} ${req.path}`);
+  const start = Date.now();
+
+  // Sanitise body — mask password fields so they never appear in logs
+  const sanitiseBody = (body: Record<string, any>) => {
+    if (!body || typeof body !== 'object') return body;
+    const REDACTED = ['password', 'currentPassword', 'newPassword', 'confirmPassword', 'apiSecret'];
+    return Object.fromEntries(
+      Object.entries(body).map(([k, v]) =>
+        REDACTED.some(r => k.toLowerCase().includes(r.toLowerCase())) ? [k, '***'] : [k, v]
+      )
+    );
+  };
+
+  logger.info(
+    { method: req.method, path: req.path, body: sanitiseBody(req.body) },
+    `→ ${req.method} ${req.path}`
+  );
+
+  // Intercept outgoing response to log status + duration
+  const logResponse = (statusCode: number) => {
+    const ms = Date.now() - start;
+    const level = statusCode >= 500 ? 'error'
+      : statusCode >= 400 ? 'warn'
+        : 'info';
+    logger[level](
+      { method: req.method, path: req.path, statusCode, ms },
+      `← ${statusCode} ${req.method} ${req.path} (${ms}ms)`
+    );
+  };
+
+  const origJson = res.json.bind(res);
+  res.json = function (body) {
+    logResponse(res.statusCode);
+    return origJson(body);
+  };
+
+  const origSend = res.send.bind(res);
+  res.send = function (body) {
+    logResponse(res.statusCode);
+    return origSend(body);
+  };
+
   next();
 });
 

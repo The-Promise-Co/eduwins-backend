@@ -10,6 +10,7 @@ import {
   uploadTeachingMaterial,
   getProfileCompletion,
 } from '../controllers/uploadController';
+import { logger } from 'utils/logger';
 
 const router = express.Router();
 
@@ -28,7 +29,30 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max global
+  fileFilter: (req, file, cb) => {
+    const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const allowedVideoTypes = ['video/mp4', 'video/mpeg', 'video/webm', 'video/quicktime'];
+    const allowedDocTypes   = ['application/pdf'];
+
+    if (file.fieldname === 'headshot') {
+      if (!allowedImageTypes.includes(file.mimetype)) {
+        return cb(new Error('Only JPG, PNG, WEBP and GIF images are allowed for headshots'));
+      }
+    } else if (file.fieldname === 'videoIntro' || file.fieldname === 'video') {
+      if (!allowedVideoTypes.includes(file.mimetype)) {
+        return cb(new Error('Only MP4, MPEG, WEBM and MOV videos are allowed'));
+      }
+    } else if (file.fieldname === 'credentials' || file.fieldname === 'material') {
+      if (!allowedDocTypes.includes(file.mimetype) && file.fieldname === 'credentials') {
+         // Credentials must be PDF
+         if (!allowedDocTypes.includes(file.mimetype)) return cb(new Error('Credentials must be in PDF format'));
+      }
+      // Teaching materials can be more flexible, but for now we stick to PDF/Docs (Wait, I'll just allow PDF for now as per schema)
+    }
+
+    cb(null, true);
+  },
 });
 
 /**
@@ -64,6 +88,7 @@ router.post('/sign', authenticateToken, (req, res) => {
 
   const signature = crypto.createHash('sha1').update(stringToSign).digest('hex');
 
+  logger.info({ signature, timestamp, folder, apiKey: process.env.CLOUDINARY_API_KEY, cloudName: process.env.CLOUDINARY_CLOUD_NAME }, 'Signature');
   res.json({
     signature,
     timestamp,

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../database/db';
 import { courses, modules, courseLessons } from '../database/schema';
-import { eq, asc } from 'drizzle-orm';
+import { eq, asc, sql } from 'drizzle-orm';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -10,10 +10,85 @@ interface AuthenticatedRequest extends Request {
   }
 }
 
+// List courses for a specific teacher
+export const getCoursesByTeacher = async (req: Request, res: Response) => {
+  try {
+    const { teacherId } = req.params;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const offset = (page - 1) * limit;
+
+    let whereClause = eq(courses.teacher_id, teacherId);
+    
+    const user = (req as any).user;
+    const isOwner = user?.id === teacherId;
+
+    const [data, totalCount] = await Promise.all([
+      db.query.courses.findMany({
+        where: isOwner ? whereClause : eq(courses.status, 'published'),
+        orderBy: [asc(courses.created_at)],
+        limit,
+        offset,
+      }),
+      db.select({ count: sql<number>`count(*)` }).from(courses).where(isOwner ? whereClause : eq(courses.status, 'published'))
+    ]);
+
+    const total = totalCount[0]?.count || 0;
+
+    res.status(200).json({
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
+  } catch (err: any) {
+    console.error('Get courses by teacher error:', err);
+    res.status(500).json({ error: 'Failed to fetch teacher courses' });
+  }
+};
+
+// List courses (all published for students)
+export const listCourses = async (req: Request, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 12;
+    const offset = (page - 1) * limit;
+
+    const [data, totalCount] = await Promise.all([
+      db.query.courses.findMany({
+        where: eq(courses.status, 'published'),
+        orderBy: [asc(courses.created_at)],
+        limit,
+        offset,
+      }),
+      db.select({ count: sql<number>`count(*)` }).from(courses).where(eq(courses.status, 'published'))
+    ]);
+
+    const total = totalCount[0]?.count || 0;
+
+    res.status(200).json({
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
+  } catch (err: any) {
+    console.error('List courses error:', err);
+    res.status(500).json({ error: 'Failed to fetch courses' });
+  }
+};
+
 // Create a new course
 export const createCourse = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const data = req.body;
+    const teacher_id = req.user.id;
     
     // Default to draft explicitly
     data.status = 'draft';
@@ -27,6 +102,7 @@ export const createCourse = async (req: AuthenticatedRequest, res: Response) => 
       price: data.price,
       is_free: data.is_free,
       status: data.status,
+      teacher_id,
       tags: Array.isArray(data.tags) ? data.tags.join(',') : (data.tags || null),
       thumbnail_url: data.thumbnail_url,
     }).returning();
