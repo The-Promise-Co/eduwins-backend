@@ -7,7 +7,9 @@ import {
   getCourseById,
   updateCourse,
   addModule,
-  addLesson
+  addLesson,
+  updateLesson,
+  deleteLesson
 } from '../controllers/courseController';
 
 const router = express.Router();
@@ -31,5 +33,7 @@ router.put('/:id', authenticateToken, updateCourse as any);
 // Modules and Lessons
 router.post('/:id/modules', authenticateToken, addModule as any);
 router.post('/modules/:moduleId/lessons', authenticateToken, addLesson as any);
+router.put('/lessons/:lessonId', authenticateToken, updateLesson as any);
+router.delete('/lessons/:lessonId', authenticateToken, deleteLesson as any);
 
 export default router;

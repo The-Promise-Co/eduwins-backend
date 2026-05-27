@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { db } from '../database/db';
-import { users, teacherProfiles, parentProfiles, verificationTokens } from '../database/schema';
+import { users, teacherProfiles, parentProfiles, verificationTokens, referrals } from '../database/schema';
 import { eq, or, and } from 'drizzle-orm';
 import { emailService } from '../utils/emailSender';
 import { generateOTP } from '../utils/otpGenerator';
@@ -11,6 +11,20 @@ import logger from '../utils/logger';
 
 const TEACHER_REFERRAL_WELFARE_BOOST = 1500; // ₦1,500 welfare boost per referral
 const PARENT_REFERRAL_DISCOUNT_VALUE = 1000; // ₦1,000 booking credit per referral
+
+// Reward amounts per subscription plan (for referrer)
+const PLAN_REWARDS: Record<string, number> = {
+  monthly: 500,      // ₦500  (10% of ₦5,000)
+  quarterly: 1500,   // ₦1,500 (12.5% of ₦12,000)
+  annual: 5000,      // ₦5,000 (12.5% of ₦40,000)
+};
+
+// Subscription plan prices (duplicated here for reward calculation; source of truth is premiumController)
+const PLAN_PRICES: Record<string, number> = {
+  monthly: 5000,
+  quarterly: 12000,
+  annual: 40000,
+};
 
 
 export const register = async (req: Request, res: Response) => {
@@ -182,9 +196,9 @@ export const verifyEmail = async (req: Request, res: Response) => {
       }).onConflictDoNothing();
     }
 
-    // Apply referral rewards if referred
+    // Register referral tracking row (reward credited later, on subscription)
     if (user.referredBy && !user.referralRewarded) {
-      await applyReferralRewards(user.referredBy, user.role);
+      await registerReferral(user.referredBy, user.id);
       await db.update(users)
         .set({ referralRewarded: true })
         .where(eq(users.id, user.id));
@@ -534,58 +548,109 @@ export const resetPassword = async (req: Request, res: Response) => {
 
 
 /**
- * Apply referral rewards when a new user registers or verifies
+ * registerReferral
+ * Called at referee email verification.
+ * Creates a 'pending' referral row — no credit yet.
+ * Increments the referrer's referralCount.
  */
-async function applyReferralRewards(referrerId: string, newUserRole: string): Promise<void> {
-  if (!referrerId) return;
-
+async function registerReferral(referrerId: string, refereeId: string): Promise<void> {
   const referrer = await db.query.users.findFirst({
     where: eq(users.id, referrerId),
   });
-
   if (!referrer) return;
 
-  // Increase referral count on referrer user record
+  // Increment count on the referrer
   const newCount = (referrer.referralCount || 0) + 1;
   await db.update(users)
     .set({ referralCount: newCount })
     .where(eq(users.id, referrerId));
 
-  // Teacher reward: welfare boost when referring another teacher
-  if (referrer.role === 'teacher' && newUserRole === 'teacher') {
-    const profile = await db.query.teacherProfiles.findFirst({
-      where: eq(teacherProfiles.userId, referrerId),
-    });
+  // Insert tracking row
+  const referralId = Math.random().toString(36).substring(2, 15);
+  await db.insert(referrals).values({
+    id: referralId,
+    referrerId,
+    refereeId,
+    status: 'pending',
+    rewardCredited: false,
+  });
 
+  logger.info({ referrerId, refereeId }, 'Referral registered (pending subscription)');
+}
+
+/**
+ * creditReferralReward
+ * Called by the subscription controller when a referee completes their FIRST subscription.
+ * Marks the referral as 'subscribed', records the plan/price/reward,
+ * and applies the credit to the referrer's wallet/discount balance.
+ *
+ * @param refereeId   - the user who just subscribed
+ * @param plan        - 'monthly' | 'quarterly' | 'annual'
+ * @param price       - actual amount paid (₦)
+ */
+export async function creditReferralReward(
+  refereeId: string,
+  plan: string,
+  price: number,
+): Promise<void> {
+  // Find the pending referral row for this referee
+  const referral = await db.query.referrals.findFirst({
+    where: and(
+      eq(referrals.refereeId, refereeId),
+      eq(referrals.status, 'pending'),
+    ),
+  });
+
+  if (!referral || referral.rewardCredited) return; // no referral, or already credited
+
+  const rewardAmount = PLAN_REWARDS[plan] ?? Math.round(price * 0.10);
+
+  // Update the referral row with subscription details
+  await db.update(referrals)
+    .set({
+      status: 'subscribed',
+      subscriptionPlan: plan,
+      subscriptionPrice: price.toString(),
+      rewardAmount: rewardAmount.toString(),
+      rewardCredited: true,
+      rewardedAt: new Date(),
+    })
+    .where(eq(referrals.id, referral.id));
+
+  // Fetch the referrer to determine reward type
+  const referrer = await db.query.users.findFirst({
+    where: eq(users.id, referral.referrerId),
+  });
+  if (!referrer) return;
+
+  // Apply credit based on referrer role
+  if (referrer.role === 'teacher') {
+    const profile = await db.query.teacherProfiles.findFirst({
+      where: eq(teacherProfiles.userId, referral.referrerId),
+    });
     if (profile) {
       const currentWelfare = parseFloat(profile.welfareBalance?.toString() || '0');
-      const currentBoost = parseFloat(profile.referralWelfareBoost?.toString() || '0');
-
+      const currentBoost  = parseFloat(profile.referralWelfareBoost?.toString() || '0');
       await db.update(teacherProfiles)
         .set({
-          welfareBalance: (currentWelfare + TEACHER_REFERRAL_WELFARE_BOOST).toString(),
-          referralWelfareBoost: (currentBoost + TEACHER_REFERRAL_WELFARE_BOOST).toString(),
+          welfareBalance: (currentWelfare + rewardAmount).toString(),
+          referralWelfareBoost: (currentBoost + rewardAmount).toString(),
         })
-        .where(eq(teacherProfiles.userId, referrerId));
+        .where(eq(teacherProfiles.userId, referral.referrerId));
     }
-  }
-
-  // Parent reward: discount credit when referring another parent
-  if (referrer.role === 'parent' && newUserRole === 'parent') {
+  } else if (referrer.role === 'parent') {
     const profile = await db.query.parentProfiles.findFirst({
-      where: eq(parentProfiles.userId, referrerId),
+      where: eq(parentProfiles.userId, referral.referrerId),
     });
-
     if (profile) {
       const currentDiscount = parseFloat(profile.referralDiscount?.toString() || '0');
-
       await db.update(parentProfiles)
-        .set({
-          referralDiscount: (currentDiscount + PARENT_REFERRAL_DISCOUNT_VALUE).toString(),
-        })
-        .where(eq(parentProfiles.userId, referrerId));
+        .set({ referralDiscount: (currentDiscount + rewardAmount).toString() })
+        .where(eq(parentProfiles.userId, referral.referrerId));
     }
   }
+
+  logger.info({ refereeId, referrerId: referral.referrerId, plan, rewardAmount }, 'Referral reward credited');
 }
 
 function createReferralCode(length: number = 8): string {

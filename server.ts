@@ -29,6 +29,7 @@ import paystackRoutes from './routes/paystack';
 import lessonRoutes from './routes/lessons';
 import subjectRoutes from './routes/subjects';
 import courseRoutes from './routes/courses';
+import referralRoutes from './routes/referrals';
 
 import authenticateToken from './middleware/auth';
 import { initRedis } from './config/redis';
@@ -165,6 +166,7 @@ app.use('/api/vault', vaultRoutes);
 app.use('/api/paystack', paystackRoutes);
 app.use('/api/subjects', subjectRoutes);
 app.use('/api/courses', courseRoutes);
+app.use('/api/referrals', referralRoutes);
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'Backend is running', timestamp: new Date() });

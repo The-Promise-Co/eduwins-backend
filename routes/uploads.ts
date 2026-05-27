@@ -11,6 +11,8 @@ import {
   getProfileCompletion,
 } from '../controllers/uploadController';
 import { logger } from 'utils/logger';
+import { getPresignedUploadUrl } from '../utils/r2';
+
 
 const router = express.Router();
 
@@ -64,39 +66,25 @@ router.post('/credentials', authenticateToken, upload.single('credentials'), upl
 router.get('/profile-completion', authenticateToken, getProfileCompletion as any);
 
 /**
- * Cloudinary Signed Upload
- * Returns timestamp + signature so the frontend can upload directly to Cloudinary
- * without exposing the API secret.
+ * Cloudflare R2 Presigned Upload URL
+ * Returns a presigned URL and public URL so the frontend can upload directly to Cloudflare R2
  */
-router.post('/sign', authenticateToken, (req, res) => {
-  const apiSecret = process.env.CLOUDINARY_API_SECRET;
-  if (!apiSecret) {
-    return res.status(500).json({ error: 'Cloudinary API secret not configured' });
+router.post('/sign', authenticateToken, async (req, res) => {
+  const { filename, contentType, folder } = req.body;
+
+  if (!filename || !contentType) {
+    return res.status(400).json({ error: 'filename and contentType are required' });
   }
 
-  const crypto = require('crypto');
-  const timestamp = Math.round(Date.now() / 1000);
-  const folder = (req.body?.folder as string) || 'eduwins';
-
-  // Sort and stringify params to sign
-  const paramsToSign: Record<string, string | number> = { folder, timestamp };
-  const stringToSign =
-    Object.keys(paramsToSign)
-      .sort()
-      .map(k => `${k}=${paramsToSign[k]}`)
-      .join('&') + apiSecret;
-
-  const signature = crypto.createHash('sha1').update(stringToSign).digest('hex');
-
-  logger.info({ signature, timestamp, folder, apiKey: process.env.CLOUDINARY_API_KEY, cloudName: process.env.CLOUDINARY_CLOUD_NAME }, 'Signature');
-  res.json({
-    signature,
-    timestamp,
-    folder,
-    apiKey: process.env.CLOUDINARY_API_KEY,
-    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-  });
+  try {
+    const data = await getPresignedUploadUrl(filename, contentType, folder || 'eduwins');
+    res.json(data);
+  } catch (err: any) {
+    logger.error(err, 'Failed to generate presigned upload URL');
+    res.status(500).json({ error: 'Failed to generate upload URL' });
+  }
 });
+
 
 /**
  * Premium Uploads

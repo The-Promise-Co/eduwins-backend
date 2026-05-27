@@ -19,7 +19,7 @@ export const getCoursesByTeacher = async (req: Request, res: Response) => {
     const offset = (page - 1) * limit;
 
     let whereClause = eq(courses.teacher_id, teacherId);
-    
+
     const user = (req as any).user;
     const isOwner = user?.id === teacherId;
 
@@ -27,6 +27,18 @@ export const getCoursesByTeacher = async (req: Request, res: Response) => {
       db.query.courses.findMany({
         where: isOwner ? whereClause : eq(courses.status, 'published'),
         orderBy: [asc(courses.created_at)],
+        with: {
+          subject: true,
+          modules: {
+            with: {
+              lessons: {
+                columns: {
+                  id: true
+                }
+              }
+            }
+          }
+        },
         limit,
         offset,
       }),
@@ -35,8 +47,17 @@ export const getCoursesByTeacher = async (req: Request, res: Response) => {
 
     const total = totalCount[0]?.count || 0;
 
+    const dataWithCount = data.map(course => {
+      const lessonCount = (course as any).modules?.reduce((acc: number, mod: any) => acc + (mod.lessons?.length || 0), 0) || 0;
+      const { modules, ...rest } = course as any;
+      return {
+        ...rest,
+        lesson_count: lessonCount
+      };
+    });
+
     res.status(200).json({
-      data,
+      data: dataWithCount,
       meta: {
         total,
         page,
@@ -61,6 +82,18 @@ export const listCourses = async (req: Request, res: Response) => {
       db.query.courses.findMany({
         where: eq(courses.status, 'published'),
         orderBy: [asc(courses.created_at)],
+        with: {
+          subject: true,
+          modules: {
+            with: {
+              lessons: {
+                columns: {
+                  id: true
+                }
+              }
+            }
+          }
+        },
         limit,
         offset,
       }),
@@ -69,8 +102,17 @@ export const listCourses = async (req: Request, res: Response) => {
 
     const total = totalCount[0]?.count || 0;
 
+    const dataWithCount = data.map(course => {
+      const lessonCount = (course as any).modules?.reduce((acc: number, mod: any) => acc + (mod.lessons?.length || 0), 0) || 0;
+      const { modules, ...rest } = course as any;
+      return {
+        ...rest,
+        lesson_count: lessonCount
+      };
+    });
+
     res.status(200).json({
-      data,
+      data: dataWithCount,
       meta: {
         total,
         page,
@@ -89,7 +131,7 @@ export const createCourse = async (req: AuthenticatedRequest, res: Response) => 
   try {
     const data = req.body;
     const teacher_id = req.user.id;
-    
+
     // Default to draft explicitly
     data.status = 'draft';
 
@@ -118,10 +160,11 @@ export const createCourse = async (req: AuthenticatedRequest, res: Response) => 
 export const getCourseById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    
+
     const course = await db.query.courses.findFirst({
       where: eq(courses.id, id),
       with: {
+        subject: true,
         modules: {
           orderBy: [asc(modules.order_index)],
           with: {
@@ -208,3 +251,49 @@ export const addLesson = async (req: AuthenticatedRequest, res: Response) => {
     res.status(500).json({ error: 'Failed to add lesson' });
   }
 };
+
+// Update an existing Lesson
+export const updateLesson = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { lessonId } = req.params;
+    const { id, module_id, created_at, ...data } = req.body;
+
+    const [updated] = await db.update(courseLessons)
+      .set({
+        ...data,
+        updated_at: new Date()
+      })
+      .where(eq(courseLessons.id, lessonId))
+      .returning();
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Lesson not found' });
+    }
+
+    res.status(200).json(updated);
+  } catch (err: any) {
+    console.error('Update lesson error:', err);
+    res.status(500).json({ error: 'Failed to update lesson' });
+  }
+};
+
+// Delete a Lesson
+export const deleteLesson = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { lessonId } = req.params;
+
+    const [deleted] = await db.delete(courseLessons)
+      .where(eq(courseLessons.id, lessonId))
+      .returning();
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Lesson not found' });
+    }
+
+    res.status(200).json({ message: 'Lesson deleted successfully', deleted });
+  } catch (err: any) {
+    console.error('Delete lesson error:', err);
+    res.status(500).json({ error: 'Failed to delete lesson' });
+  }
+};
+

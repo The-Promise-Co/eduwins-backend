@@ -62,6 +62,32 @@ export const ambassadors = pgTable('ambassadors', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+/**
+ * referrals
+ * One row per (referrer → referee) relationship.
+ * Created at referee email verification (status='pending').
+ * Updated to 'subscribed' and rewardCredited=true when the referee's
+ * first subscription is confirmed — at that point subscriptionPlan,
+ * subscriptionPrice, and rewardAmount are filled in.
+ */
+export const referrals = pgTable('referrals', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  referrerId: varchar('referrer_id', { length: 255 }).notNull().references(() => users.id),
+  refereeId: varchar('referee_id', { length: 255 }).notNull().references(() => users.id),
+
+  // Set when the referee subscribes for the first time
+  subscriptionPlan: varchar('subscription_plan', { length: 50 }),   // 'monthly' | 'quarterly' | 'annual'
+  subscriptionPrice: decimal('subscription_price', { precision: 20, scale: 2 }),
+  rewardAmount: decimal('reward_amount', { precision: 20, scale: 2 }),
+
+  // Lifecycle
+  status: varchar('status', { length: 50 }).default('pending').notNull(), // 'pending' | 'subscribed'
+  rewardCredited: boolean('reward_credited').default(false).notNull(),
+
+  createdAt: timestamp('created_at').defaultNow(),   // when referee signed up
+  rewardedAt: timestamp('rewarded_at'),              // when reward was actually applied
+});
+
 export const progressReports = pgTable('progress_reports', {
   id: varchar('id', { length: 255 }).primaryKey(),
   studentId: varchar('student_id', { length: 255 }).references(() => users.id),
@@ -85,3 +111,4 @@ export type Withdrawal = InferSelectModel<typeof withdrawals>;
 export type Transaction = InferSelectModel<typeof transactions>;
 export type Ambassador = InferSelectModel<typeof ambassadors>;
 export type Notification = InferSelectModel<typeof notifications>;
+export type Referral = InferSelectModel<typeof referrals>;

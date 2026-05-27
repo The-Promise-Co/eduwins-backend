@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { users } from "./users";
+import { subjects } from "./system";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
@@ -113,8 +114,12 @@ export const courseLessons = pgTable(
 
 // ─── Relations ────────────────────────────────────────────────────────────────
 
-export const coursesRelations = relations(courses, ({ many }) => ({
+export const coursesRelations = relations(courses, ({ many, one }) => ({
   modules: many(modules),
+  subject: one(subjects, {
+    fields: [courses.subject],
+    references: [subjects.id],
+  }),
 }));
 
 export const modulesRelations = relations(modules, ({ one, many }) => ({
