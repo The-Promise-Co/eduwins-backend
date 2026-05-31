@@ -373,12 +373,25 @@ export const getProfile = async (req: any, res: Response) => {
       fullName: `${user.firstName} ${user.lastName}`,
       email: user.email,
       role: user.role,
+      bio: user.bio,
+      photoUrl: user.photoUrl,
       referralCode: user.referralCode,
       referralCount: user.referralCount || 0,
       referredBy: user.referredBy,
       referralDiscount: parentProfile?.referralDiscount || 0,
       welfareBoost: teacherProfile?.referralWelfareBoost || 0,
       welfareBalance: teacherProfile?.welfareBalance || 0,
+      teacherProfile: teacherProfile ? {
+        pronouns: teacherProfile.pronouns || '',
+        highestDegree: teacherProfile.highestDegree || '',
+        institution: teacherProfile.institution || '',
+        yearsOfExperience: teacherProfile.yearsOfExperience || 0,
+        languages: teacherProfile.languages || [],
+        subjects: teacherProfile.subjects || [],
+        educationLevels: teacherProfile.educationLevels || [],
+        sessionFormats: teacherProfile.sessionFormats || [],
+        deliveryModes: teacherProfile.deliveryModes || [],
+      } : null
     });
   } catch (err: any) {
     logger.error({ err }, 'Could not fetch profile');
@@ -664,7 +677,21 @@ function createReferralCode(length: number = 8): string {
 export const updateProfile = async (req: any, res: Response) => {
   try {
     const userId = req.user.id;
-    const { firstName, lastName, bio, photoUrl } = req.body;
+    const { 
+      firstName, 
+      lastName, 
+      bio, 
+      photoUrl,
+      pronouns,
+      highestDegree,
+      institution,
+      yearsOfExperience,
+      languages,
+      subjects,
+      educationLevels,
+      sessionFormats,
+      deliveryModes
+    } = req.body;
 
     if (!firstName || !lastName) {
       return res.status(400).json({ error: 'First name and last name are required' });
@@ -675,12 +702,34 @@ export const updateProfile = async (req: any, res: Response) => {
       lastName,
     };
 
-    if (bio) updateData.bio = bio;
-    if (photoUrl) updateData.photoUrl = photoUrl;
+    if (bio !== undefined) updateData.bio = bio;
+    if (photoUrl !== undefined) updateData.photoUrl = photoUrl;
 
     await db.update(users)
       .set(updateData)
       .where(eq(users.id, userId));
+
+    // Update teacher-specific profiles table if teacher role
+    if (req.user.role === 'teacher') {
+      const teacherUpdateData: any = {};
+      if (pronouns !== undefined) teacherUpdateData.pronouns = pronouns;
+      if (bio !== undefined) teacherUpdateData.bio = bio; // both users and teacher_profiles can store bio/photoUrl
+      if (photoUrl !== undefined) teacherUpdateData.photoUrl = photoUrl;
+      if (highestDegree !== undefined) teacherUpdateData.highestDegree = highestDegree;
+      if (institution !== undefined) teacherUpdateData.institution = institution;
+      if (yearsOfExperience !== undefined) teacherUpdateData.yearsOfExperience = parseInt(yearsOfExperience) || 0;
+      if (languages !== undefined) teacherUpdateData.languages = languages;
+      if (subjects !== undefined) teacherUpdateData.subjects = subjects;
+      if (educationLevels !== undefined) teacherUpdateData.educationLevels = educationLevels;
+      if (sessionFormats !== undefined) teacherUpdateData.sessionFormats = sessionFormats;
+      if (deliveryModes !== undefined) teacherUpdateData.deliveryModes = deliveryModes;
+
+      if (Object.keys(teacherUpdateData).length > 0) {
+        await db.update(teacherProfiles)
+          .set(teacherUpdateData)
+          .where(eq(teacherProfiles.userId, userId));
+      }
+    }
 
     res.json({
       message: 'Profile updated successfully',
