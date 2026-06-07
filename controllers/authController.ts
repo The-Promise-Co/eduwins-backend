@@ -273,6 +273,34 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
+    if (user.twoFactorEnabled) {
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      const otpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+      const otp = generateOTP();
+
+      await db.insert(verificationTokens).values({
+        id: Math.random().toString(36).substring(2, 15),
+        userId: user.id,
+        token: verificationToken,
+        otp,
+        type: 'login',
+        expiresAt: otpExpiry,
+      });
+
+      try {
+        await emailService.send2faOtpEmail(user.email, otp);
+      } catch (err: any) {
+        logger.warn({ err }, '2FA Email send warning');
+      }
+
+      return res.status(200).json({
+        message: 'Two-factor authentication code sent to your email.',
+        requires2FA: true,
+        verificationToken,
+        testOTP: process.env.NODE_ENV === 'development' ? otp : undefined,
+      });
+    }
+
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
 
     const teacherProfile = await db.query.teacherProfiles.findFirst({ where: eq(teacherProfiles.userId, user.id) });
@@ -339,7 +367,11 @@ export const resendOtp = async (req: Request, res: Response) => {
       .where(eq(verificationTokens.id, tokenRecord.id));
 
     try {
-      await emailService.sendVerificationEmail(user.email, otp);
+      if (tokenRecord.type === 'login') {
+        await emailService.send2faOtpEmail(user.email, otp);
+      } else {
+        await emailService.sendVerificationEmail(user.email, otp);
+      }
     } catch (err: any) {
       logger.warn({ err }, 'Email send warning');
     }
@@ -381,6 +413,7 @@ export const getProfile = async (req: any, res: Response) => {
       referralDiscount: parentProfile?.referralDiscount || 0,
       welfareBoost: teacherProfile?.referralWelfareBoost || 0,
       welfareBalance: teacherProfile?.welfareBalance || 0,
+      twoFactorEnabled: user.twoFactorEnabled || false,
       teacherProfile: teacherProfile ? {
         pronouns: teacherProfile.pronouns || '',
         highestDegree: teacherProfile.highestDegree || '',
@@ -745,6 +778,108 @@ export const updateProfile = async (req: any, res: Response) => {
   } catch (err: any) {
     logger.error({ err }, 'Profile update error');
     res.status(500).json({ error: 'Failed to update profile. Please try again later.' });
+  }
+};
+
+export const toggle2FA = async (req: any, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const newStatus = !user.twoFactorEnabled;
+
+    await db.update(users)
+      .set({ twoFactorEnabled: newStatus })
+      .where(eq(users.id, userId));
+
+    logger.info({ userId, newStatus }, 'Two-factor authentication toggle');
+    res.json({
+      message: `Two-factor authentication has been ${newStatus ? 'enabled' : 'disabled'} successfully.`,
+      twoFactorEnabled: newStatus,
+    });
+  } catch (err: any) {
+    logger.error({ err }, '2FA toggle error');
+    res.status(500).json({ error: 'Failed to toggle two-factor authentication. Please try again later.' });
+  }
+};
+
+export const verify2FA = async (req: Request, res: Response) => {
+  const { token, otp } = req.body;
+
+  try {
+    if (!token || !otp) {
+      return res.status(400).json({ error: 'Token and OTP required' });
+    }
+
+    // Lookup token record
+    const tokenRecord = await db.query.verificationTokens.findFirst({
+      where: and(
+        eq(verificationTokens.token, token),
+        eq(verificationTokens.type, 'login')
+      ),
+    });
+
+    if (!tokenRecord) {
+      return res.status(400).json({ error: 'Invalid or expired 2FA request' });
+    }
+
+    if (tokenRecord.usedAt) {
+      return res.status(400).json({ error: 'This 2FA code has already been used' });
+    }
+
+    if (new Date() > tokenRecord.expiresAt) {
+      return res.status(400).json({ error: '2FA verification code has expired' });
+    }
+
+    if (process.env.NODE_ENV !== 'development' && tokenRecord.otp !== otp) {
+      return res.status(400).json({ error: 'Invalid OTP code' });
+    }
+
+    // Get the user
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, tokenRecord.userId),
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Mark token as used
+    await db.update(verificationTokens)
+      .set({ usedAt: new Date() })
+      .where(eq(verificationTokens.id, tokenRecord.id));
+
+    const jwtToken = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
+
+    const teacherProfile = await db.query.teacherProfiles.findFirst({ where: eq(teacherProfiles.userId, user.id) });
+    const parentProfile = await db.query.parentProfiles.findFirst({ where: eq(parentProfiles.userId, user.id) });
+
+    res.json({
+      token: jwtToken,
+      role: user.role,
+      user: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        fullName: `${user.firstName} ${user.lastName}`,
+        email: user.email,
+        role: user.role,
+        referralCode: user.referralCode,
+        referralCount: user.referralCount || 0,
+        referralDiscount: parentProfile?.referralDiscount || 0,
+        welfareBoost: teacherProfile?.referralWelfareBoost || 0,
+      },
+    });
+    logger.info({ userId: user.id, role: user.role }, 'User 2FA verified successfully');
+  } catch (err: any) {
+    logger.error({ err }, '2FA verification error');
+    res.status(500).json({ error: 'Verification failed. Please try again later.' });
   }
 };
 

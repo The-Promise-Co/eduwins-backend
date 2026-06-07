@@ -240,6 +240,29 @@ export class EmailService {
       html,
     });
   }
+
+  /**
+   * Send 2FA login OTP email
+   */
+  async send2faOtpEmail(email: string, otp: string): Promise<void> {
+    const html = this.loadTemplate('otp', { otp });
+
+    if (!html) {
+      console.error('❌ Failed to load OTP template');
+      await this.sendEmail({
+        to: email,
+        subject: 'EduWins - Two-Factor Authentication OTP',
+        html: `<h2>EduWins Security</h2><p>Your two-factor authentication verification code is: <strong>${otp}</strong></p>`,
+      });
+      return;
+    }
+
+    await this.sendEmail({
+      to: email,
+      subject: 'EduWins - Two-Factor Authentication OTP',
+      html,
+    });
+  }
 }
 
 // Export singleton instance

@@ -112,6 +112,25 @@ export const courseLessons = pgTable(
   })
 );
 
+// ─── Course Enrollments ────────────────────────────────────────────────────────
+
+export const courseEnrollments = pgTable(
+  "course_enrollments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    userId: varchar("user_id", { length: 255 })
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    courseUserIdx: index("course_enrollments_course_user_idx").on(t.courseId, t.userId),
+  })
+);
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const coursesRelations = relations(courses, ({ many, one }) => ({
@@ -120,6 +139,7 @@ export const coursesRelations = relations(courses, ({ many, one }) => ({
     fields: [courses.subject],
     references: [subjects.id],
   }),
+  enrollments: many(courseEnrollments),
 }));
 
 export const modulesRelations = relations(modules, ({ one, many }) => ({
@@ -131,6 +151,11 @@ export const courseLessonsRelations = relations(courseLessons, ({ one }) => ({
   module: one(modules, { fields: [courseLessons.module_id], references: [modules.id] }),
 }));
 
+export const courseEnrollmentsRelations = relations(courseEnrollments, ({ one }) => ({
+  course: one(courses, { fields: [courseEnrollments.courseId], references: [courses.id] }),
+  user: one(users, { fields: [courseEnrollments.userId], references: [users.id] }),
+}));
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type Course = typeof courses.$inferSelect;
@@ -139,6 +164,8 @@ export type Module = typeof modules.$inferSelect;
 export type NewModule = typeof modules.$inferInsert;
 export type CourseLesson = typeof courseLessons.$inferSelect;
 export type NewCourseLesson = typeof courseLessons.$inferInsert;
+export type CourseEnrollment = typeof courseEnrollments.$inferSelect;
+export type NewCourseEnrollment = typeof courseEnrollments.$inferInsert;
 
 export const LEVELS = ["beginner", "intermediate", "advanced", "all_levels"] as const;
 export type CourseLevel = typeof LEVELS[number];

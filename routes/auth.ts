@@ -10,6 +10,8 @@ import {
   forgotPassword,
   validateResetToken,
   resetPassword,
+  toggle2FA,
+  verify2FA,
   // socialRegister,
   // socialLogin
 } from '../controllers/authController';
@@ -128,6 +130,18 @@ router.get('/me', authenticateToken, getProfile as any);
  * Update user profile
  */
 router.put('/profile', authenticateToken, updateProfile as any);
+
+/**
+ * POST /api/auth/verify-2fa
+ * Verify 2FA OTP code and login user
+ */
+router.post('/verify-2fa', verify2FA as any);
+
+/**
+ * POST /api/auth/2fa/toggle
+ * Toggle 2FA on/off
+ */
+router.post('/2fa/toggle', authenticateToken, toggle2FA as any);
 
 // Social Auth routes commented out until migrated if needed
 // router.post('/social-register', socialRegister);

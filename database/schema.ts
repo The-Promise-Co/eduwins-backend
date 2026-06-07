@@ -6,3 +6,4 @@ export * from './schema/housing';
 export * from './schema/premium';
 export * from './schema/financials';
 export * from './schema/courses';
+export * from './schema/children';

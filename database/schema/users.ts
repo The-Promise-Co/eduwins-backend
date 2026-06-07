@@ -40,6 +40,11 @@ export const users = pgTable('users', {
   subscriptionPlan: varchar('subscription_plan', { length: 50 }),
   subscriptionEndDate: timestamp('subscription_end_date'),
 
+  // 2FA Flags
+  twoFactorEnabled: boolean('two_factor_enabled').default(false),
+  twoFactorSecret: text('two_factor_secret'),
+  twoFactorTempSecret: text('two_factor_temp_secret'),
+
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
