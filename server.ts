@@ -40,6 +40,18 @@ import logger from './utils/logger';
 const app = express();
 // initRedis();
 
+const isProduction = process.env.NODE_ENV === 'production';
+const PORT = Number(process.env.PORT || process.env.BACKEND_PORT || 5000);
+const HOST = process.env.HOST || (isProduction ? '0.0.0.0' : 'localhost');
+const PUBLIC_API_URL =
+  process.env.PUBLIC_API_URL ||
+  process.env.BACKEND_URL ||
+  `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/api`;
+
+if (isProduction) {
+  app.set('trust proxy', 1);
+}
+
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
@@ -185,8 +197,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-const PORT = process.env.PORT || process.env.BACKEND_PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Backend running on port ${PORT}`);
-  console.log(`📍 API available at http://localhost:${PORT}/api`);
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 Backend running on ${HOST}:${PORT}`);
+  console.log(`📍 API available at ${PUBLIC_API_URL}`);
 });
