@@ -41,12 +41,17 @@ const app = express();
 // initRedis();
 
 const isProduction = process.env.NODE_ENV === 'production';
-const PORT = Number(process.env.PORT || process.env.BACKEND_PORT || 5000);
+const configuredPort = Number(process.env.PORT || process.env.BACKEND_PORT);
+const PORT = Number.isFinite(configuredPort) ? configuredPort : 5000;
 const HOST = process.env.HOST || (isProduction ? '0.0.0.0' : 'localhost');
 const PUBLIC_API_URL =
   process.env.PUBLIC_API_URL ||
   process.env.BACKEND_URL ||
   `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/api`;
+const allowedOrigins = (process.env.CORS_ORIGINS || process.env.FRONTEND_URL || '')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
 
 if (isProduction) {
   app.set('trust proxy', 1);
@@ -86,7 +91,10 @@ const upload = multer({
 
 // Security middleware
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: allowedOrigins.length ? allowedOrigins : true,
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.static(uploadsDir));
 
