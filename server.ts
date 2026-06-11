@@ -213,7 +213,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Internal server error' });
 });
-
+console.log("Starting server...");
 app.listen(PORT, HOST, () => {
   console.log(`🚀 Backend running on ${HOST}:${PORT}`);
   console.log(`📍 API available at ${PUBLIC_API_URL}`);
