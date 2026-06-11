@@ -2,20 +2,30 @@ import { Request, Response } from 'express';
 import axios from 'axios';
 import crypto from 'crypto';
 import { db } from '../database/db';
-import { transactions, bookings } from '../database/schema';
-import { eq } from 'drizzle-orm';
+import { transactions, bookings, courseEnrollments, courses } from '../database/schema';
+import { eq, and, sql } from 'drizzle-orm';
 import dotenv from 'dotenv';
+import { log } from 'console';
 
 dotenv.config();
 
+interface AuthenticatedRequest extends Request {
+  user?: { id: string; email?: string; role?: string };
+}
+
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
-export const initializePayment = async (req: Request, res: Response) => {
-  const { email, amount, currency, reference, callback_url } = req.body;
+export const initializePayment = async (req: AuthenticatedRequest, res: Response) => {
+  const { email, amount, currency, reference, callback_url, course_id } = req.body;
+  const userId = req.user?.id;
 
   if (!PAYSTACK_SECRET) {
     return res.status(500).json({ error: 'Paystack not configured' });
   }
+
+  const metadata: Record<string, any> = {};
+  if (course_id) metadata.course_id = course_id;
+  if (userId) metadata.user_id = userId;
 
   try {
     const response = await axios.post('https://api.paystack.co/transaction/initialize', {
@@ -23,6 +33,7 @@ export const initializePayment = async (req: Request, res: Response) => {
       amount: Math.round(amount * 100),
       currency: currency || 'NGN',
       reference,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       callback_url: callback_url || `${process.env.FRONTEND_URL}/payment-success`,
     }, {
       headers: {
@@ -30,7 +41,7 @@ export const initializePayment = async (req: Request, res: Response) => {
         'Content-Type': 'application/json',
       },
     });
-
+    log('Paystack initialize response:', response.data);
     res.json(response.data.data);
   } catch (err: any) {
     console.error('Paystack initialize error:', err.response?.data || err.message);
@@ -65,6 +76,29 @@ export const verifyPayment = async (req: Request, res: Response) => {
       metadata: data,
     });
 
+    // If this was a course payment, enroll the user
+    if (data.metadata?.course_id && data.metadata?.user_id) {
+      const courseId = data.metadata.course_id;
+      const userId = data.metadata.user_id;
+
+      const [existing] = await db.select({ id: courseEnrollments.id })
+        .from(courseEnrollments)
+        .where(
+          and(
+            eq(courseEnrollments.courseId, courseId),
+            eq(courseEnrollments.userId, userId)
+          )
+        )
+        .limit(1);
+
+      if (!existing) {
+        await db.insert(courseEnrollments).values({ courseId, userId });
+        await db.update(courses)
+          .set({ enrolled_count: sql`${courses.enrolled_count} + 1` })
+          .where(eq(courses.id, courseId));
+      }
+    }
+
     res.json(data);
   } catch (err: any) {
     console.error('Paystack verify error:', err.response?.data || err.message);
@@ -88,17 +122,40 @@ export const paystackWebhook = async (req: Request, res: Response) => {
   const event = req.body;
 
   if (event.event === 'charge.success') {
-    // handle business logic: update booking, release funds to teacher, etc.
     try {
       const metadata = event.data.metadata || {};
 
+      // Handle booking payment
       if (metadata.booking_id) {
         await db.update(bookings)
-          .set({ 
-            status: 'paid_escrow', 
-            paymentReference: event.data.reference 
+          .set({
+            status: 'paid_escrow',
+            paymentReference: event.data.reference
           })
           .where(eq(bookings.id, metadata.booking_id));
+      }
+
+      // Handle course enrollment payment
+      if (metadata.course_id && metadata.user_id) {
+        const [existing] = await db.select({ id: courseEnrollments.id })
+          .from(courseEnrollments)
+          .where(
+            and(
+              eq(courseEnrollments.courseId, metadata.course_id),
+              eq(courseEnrollments.userId, metadata.user_id)
+            )
+          )
+          .limit(1);
+
+        if (!existing) {
+          await db.insert(courseEnrollments).values({
+            courseId: metadata.course_id,
+            userId: metadata.user_id,
+          });
+          await db.update(courses)
+            .set({ enrolled_count: sql`${courses.enrolled_count} + 1` })
+            .where(eq(courses.id, metadata.course_id));
+        }
       }
 
       const transactionId = Math.random().toString(36).substring(2, 15);
