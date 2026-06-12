@@ -103,6 +103,8 @@ app.use(helmet());
 app.use(cors({
   origin: allowedOrigins.length ? allowedOrigins : true,
   credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 }));
 app.use(express.json());
 app.use(express.static(uploadsDir));
@@ -214,6 +216,7 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 console.log("Starting server...");
+
 app.listen(PORT, HOST, () => {
   console.log(`🚀 Backend running on ${HOST}:${PORT}`);
   console.log(`📍 API available at ${PUBLIC_API_URL}`);
