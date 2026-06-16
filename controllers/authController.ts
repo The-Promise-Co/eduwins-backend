@@ -12,11 +12,11 @@ import logger from '../utils/logger';
 const TEACHER_REFERRAL_WELFARE_BOOST = 1500; // ₦1,500 welfare boost per referral
 const PARENT_REFERRAL_DISCOUNT_VALUE = 1000; // ₦1,000 booking credit per referral
 
-// Reward amounts per subscription plan (for referrer)
+// Reward amount per successful referral subscription (for referrer)
 const PLAN_REWARDS: Record<string, number> = {
-  monthly: 500,      // ₦500  (10% of ₦5,000)
-  quarterly: 1500,   // ₦1,500 (12.5% of ₦12,000)
-  annual: 5000,      // ₦5,000 (12.5% of ₦40,000)
+  monthly: 150,
+  quarterly: 150,
+  annual: 150,
 };
 
 // Subscription plan prices (duplicated here for reward calculation; source of truth is premiumController)
@@ -180,6 +180,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
     if (user.role === 'teacher') {
       await db.insert(teacherProfiles).values({
         userId: user.id,
+        emailVerified: true,
         baseHourlyRate: '0',
         totalEarnings: '0',
         walletBalance: '0',
@@ -424,6 +425,12 @@ export const getProfile = async (req: any, res: Response) => {
         educationLevels: teacherProfile.educationLevels || [],
         sessionFormats: teacherProfile.sessionFormats || [],
         deliveryModes: teacherProfile.deliveryModes || [],
+        emailVerified: teacherProfile.emailVerified,
+        phoneVerified: teacherProfile.phoneVerified,
+        idVerified: teacherProfile.idVerified,
+        photo: teacherProfile.photoUrl,
+        videoVerified: teacherProfile.videoVerified,
+        isVerified: teacherProfile.isVerified,
       } : null
     });
   } catch (err: any) {
@@ -715,6 +722,7 @@ export const updateProfile = async (req: any, res: Response) => {
       lastName, 
       bio, 
       photoUrl,
+      photo,
       pronouns,
       highestDegree,
       institution,
@@ -736,6 +744,7 @@ export const updateProfile = async (req: any, res: Response) => {
     };
 
     if (bio !== undefined) updateData.bio = bio;
+    if (photo !== undefined) updateData.photoUrl = photo;
     if (photoUrl !== undefined) updateData.photoUrl = photoUrl;
 
     await db.update(users)
@@ -746,7 +755,8 @@ export const updateProfile = async (req: any, res: Response) => {
     if (req.user.role === 'teacher') {
       const teacherUpdateData: any = {};
       if (pronouns !== undefined) teacherUpdateData.pronouns = pronouns;
-      if (bio !== undefined) teacherUpdateData.bio = bio; // both users and teacher_profiles can store bio/photoUrl
+      if (bio !== undefined) teacherUpdateData.bio = bio;
+      if (photo !== undefined) teacherUpdateData.photoUrl = photo;
       if (photoUrl !== undefined) teacherUpdateData.photoUrl = photoUrl;
       if (highestDegree !== undefined) teacherUpdateData.highestDegree = highestDegree;
       if (institution !== undefined) teacherUpdateData.institution = institution;

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../database/db';
-import { courses, modules, courseLessons, courseEnrollments } from '../database/schema';
-import { eq, asc, sql, and } from 'drizzle-orm';
+import { courses, modules, courseLessons, courseEnrollments, users } from '../database/schema';
+import { eq, asc, sql, and, inArray } from 'drizzle-orm';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -9,6 +9,24 @@ interface AuthenticatedRequest extends Request {
     role: string;
   }
 }
+
+const attachTeacherNames = async <T extends { teacher_id?: string | null }>(courseList: T[]) => {
+  const teacherIds = Array.from(new Set(courseList.map((course) => course.teacher_id).filter(Boolean))) as string[];
+  if (teacherIds.length === 0) return courseList.map((course) => ({ ...course, teacher_name: '' }));
+
+  const teacherRows = await db.select({
+    id: users.id,
+    teacher_name: sql<string>`CONCAT(${users.firstName}, ' ', ${users.lastName})`,
+  })
+    .from(users)
+    .where(inArray(users.id, teacherIds));
+
+  const teacherNames = new Map(teacherRows.map((teacher) => [teacher.id, teacher.teacher_name]));
+  return courseList.map((course) => ({
+    ...course,
+    teacher_name: course.teacher_id ? teacherNames.get(course.teacher_id) || '' : '',
+  }));
+};
 
 // List courses for a specific teacher
 export const getCoursesByTeacher = async (req: Request, res: Response) => {
@@ -55,9 +73,10 @@ export const getCoursesByTeacher = async (req: Request, res: Response) => {
         lesson_count: lessonCount
       };
     });
+    const dataWithTeacherNames = await attachTeacherNames(dataWithCount);
 
     res.status(200).json({
-      data: dataWithCount,
+      data: dataWithTeacherNames,
       meta: {
         total,
         page,
@@ -110,9 +129,10 @@ export const listCourses = async (req: Request, res: Response) => {
         lesson_count: lessonCount
       };
     });
+    const dataWithTeacherNames = await attachTeacherNames(dataWithCount);
 
     res.status(200).json({
-      data: dataWithCount,
+      data: dataWithTeacherNames,
       meta: {
         total,
         page,
@@ -180,7 +200,9 @@ export const getCourseById = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Course not found' });
     }
 
-    res.status(200).json(course);
+    const [courseWithTeacherName] = await attachTeacherNames([course]);
+
+    res.status(200).json(courseWithTeacherName);
   } catch (err: any) {
     console.error('Get course error:', err);
     res.status(500).json({ error: 'Failed to fetch course' });
@@ -386,9 +408,10 @@ export const getEnrolledCourses = async (req: AuthenticatedRequest, res: Respons
         enrolled_at: row.createdAt,
       };
     });
+    const dataWithTeacherNames = await attachTeacherNames(data);
 
     res.status(200).json({
-      data,
+      data: dataWithTeacherNames,
       meta: {
         total,
         page,
@@ -401,4 +424,3 @@ export const getEnrolledCourses = async (req: AuthenticatedRequest, res: Respons
     res.status(500).json({ error: 'Failed to fetch enrolled courses' });
   }
 };
-

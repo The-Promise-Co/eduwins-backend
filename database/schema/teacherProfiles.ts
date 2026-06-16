@@ -52,6 +52,10 @@ export const teacherProfiles = pgTable('teacher_profiles', {
         .references(() => users.id),
 
     isApproved: boolean('is_approved').default(false).notNull(),
+    isVerified: boolean('is_verified').default(false).notNull(),
+    emailVerified: boolean('email_verified').default(false).notNull(),
+    phoneVerified: boolean('phone_verified').default(false).notNull(),
+    idVerified: boolean('id_verified').default(false).notNull(),
     searchRank: varchar('search_rank', { length: 50 }).default('normal').notNull(),
     ratingAvg: decimal('rating_avg', { precision: 3, scale: 2 }).default('0').notNull(),
     totalSessions: integer('total_sessions').default(0).notNull(),
@@ -67,6 +71,7 @@ export const teacherProfiles = pgTable('teacher_profiles', {
     // ── Identity (teacher editable) ──────────────────────────────────────────
 
     photoUrl: text('photo_url'),
+    videoVerified: text('video_verified'),
     pronouns: varchar('pronouns', { length: 50 }),
     bio: text('bio'),
 

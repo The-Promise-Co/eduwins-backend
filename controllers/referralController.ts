@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { db } from '../database/db';
 import { users, referrals } from '../database/schema';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import logger from '../utils/logger';
 
 interface AuthenticatedRequest {
@@ -11,9 +11,9 @@ interface AuthenticatedRequest {
 // Reward table — mirrors authController constants; single source of truth should
 // eventually live in a shared config file.
 const PLAN_REWARDS: Record<string, number> = {
-  monthly: 500,
-  quarterly: 1500,
-  annual: 5000,
+  monthly: 150,
+  quarterly: 150,
+  annual: 150,
 };
 
 const PLAN_PRICES: Record<string, number> = {
@@ -27,7 +27,7 @@ const PLAN_PRICES: Record<string, number> = {
  * Returns all referrals made by the authenticated user.
  * Each entry includes:
  *  - referee name, role, and join date
- *  - subscription plan details (plan label, price, reward) — shown once the referee subscribes
+ *  - subscription plan details (plan label, reward) — shown once the referee subscribes
  *  - status: 'pending' | 'subscribed'
  *  - rewardCredited, rewardedAt
  */
@@ -42,7 +42,6 @@ export const getMyReferrals = async (req: any, res: Response) => {
       return res.json({ referrals: [], summary: buildSummary([]) });
     }
 
-    // Fetch referee user records in bulk
     const refereeIds = rows.map((r) => r.refereeId);
     const refereeUsers = await db
       .select({
@@ -51,31 +50,16 @@ export const getMyReferrals = async (req: any, res: Response) => {
         lastName: users.lastName,
         role: users.role,
         email: users.email,
+        createdAt: users.createdAt,
       })
       .from(users)
-      .where(eq(users.id, refereeIds[0])); // initial fetch — see note below
+      .where(inArray(users.id, refereeIds));
 
-    // Drizzle doesn't have inArray in this version easily accessible via query builder
-    // so we fetch all referees individually if there are multiple. Fine for referral counts.
-    const refereeMap: Record<string, { firstName: string; lastName: string; role: string; email: string }> = {};
-
-    await Promise.all(
-      refereeIds.map(async (rid) => {
-        const u = await db.query.users.findFirst({ where: eq(users.id, rid) });
-        if (u) {
-          refereeMap[rid] = {
-            firstName: u.firstName,
-            lastName: u.lastName,
-            role: u.role,
-            email: u.email,
-          };
-        }
-      }),
-    );
+    const refereeMap = new Map(refereeUsers.map((u) => [u.id, u]));
 
     // Shape each row
     const shaped = rows.map((row) => {
-      const referee = refereeMap[row.refereeId];
+      const referee = refereeMap.get(row.refereeId);
       const plan = row.subscriptionPlan;
 
       // Potential reward the referrer can earn for this referee's subscription (for display in pending rows)
@@ -87,25 +71,28 @@ export const getMyReferrals = async (req: any, res: Response) => {
 
       return {
         id: row.id,
+        referrerId: row.referrerId,
+        refereeId: row.refereeId,
+        subscriptionPlan: row.subscriptionPlan,
+        rewardAmount: row.rewardAmount,
+        status: row.status,
+        rewardCredited: row.rewardCredited,
+        createdAt: row.createdAt,
+        rewardedAt: row.rewardedAt,
         referee: referee
           ? {
               id: row.refereeId,
               name: `${referee.firstName} ${referee.lastName}`,
               role: referee.role,
               email: referee.email,
+              joinedAt: referee.createdAt,
             }
           : null,
-        status: row.status,
-        rewardCredited: row.rewardCredited,
-        createdAt: row.createdAt,
-        rewardedAt: row.rewardedAt,
-
         // Subscription details — only populated after the referee subscribes
         subscription: plan
           ? {
               plan,
               planLabel: formatPlanLabel(plan),
-              price: Number(row.subscriptionPrice),
               rewardAmount: Number(row.rewardAmount),
             }
           : null,

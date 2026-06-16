@@ -3,12 +3,12 @@ import { db } from '../database/db';
 import {
   users,
   housingApplications,
-  // vaultItems, 
   teacherProfiles,
   parentProfiles,
-  // disputes,
+  teacherDocuments,
+  platformConfigs,
   welfareFunds,
-  bookings
+  bookings,
 } from '../database/schema';
 import { eq, sql, count, and, desc } from 'drizzle-orm';
 
@@ -18,6 +18,126 @@ interface AuthenticatedRequest extends Request {
     role: string;
   }
 }
+
+const VALID_CONFIG_TARGETS = ['tutor', 'welfare', 'platform_fee'];
+const VALID_CONFIG_VALUE_TYPES = ['flat_fee', 'percentage'];
+
+export const listPlatformConfigs = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const configs = await db.select().from(platformConfigs);
+    res.json(configs);
+  } catch (err: any) {
+    console.error('List platform configs error:', err);
+    res.status(500).json({ error: 'Could not fetch platform configs' });
+  }
+};
+
+export const createPlatformConfig = async (req: AuthenticatedRequest, res: Response) => {
+  const { key, label, target, valueType, value, description, isActive } = req.body;
+
+  if (!key || !label || !target || !valueType || value === undefined) {
+    return res.status(400).json({ error: 'key, label, target, valueType and value are required' });
+  }
+
+  if (!VALID_CONFIG_TARGETS.includes(target)) {
+    return res.status(400).json({ error: 'Invalid target' });
+  }
+
+  if (!VALID_CONFIG_VALUE_TYPES.includes(valueType)) {
+    return res.status(400).json({ error: 'Invalid valueType' });
+  }
+
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return res.status(400).json({ error: 'value must be a non-negative number' });
+  }
+
+  if (valueType === 'percentage' && numericValue > 100) {
+    return res.status(400).json({ error: 'percentage value cannot exceed 100' });
+  }
+
+  try {
+    const id = Math.random().toString(36).substring(2, 15);
+    const [config] = await db.insert(platformConfigs).values({
+      id,
+      key,
+      label,
+      target,
+      valueType,
+      value: numericValue.toString(),
+      description,
+      isActive: isActive ?? true,
+      updatedAt: new Date(),
+    }).returning();
+
+    res.status(201).json(config);
+  } catch (err: any) {
+    console.error('Create platform config error:', err);
+    res.status(500).json({ error: 'Could not create platform config' });
+  }
+};
+
+export const updatePlatformConfig = async (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { key, label, target, valueType, value, description, isActive } = req.body;
+
+  if (target && !VALID_CONFIG_TARGETS.includes(target)) {
+    return res.status(400).json({ error: 'Invalid target' });
+  }
+
+  if (valueType && !VALID_CONFIG_VALUE_TYPES.includes(valueType)) {
+    return res.status(400).json({ error: 'Invalid valueType' });
+  }
+
+  const updateData: any = { updatedAt: new Date() };
+  if (key !== undefined) updateData.key = key;
+  if (label !== undefined) updateData.label = label;
+  if (target !== undefined) updateData.target = target;
+  if (valueType !== undefined) updateData.valueType = valueType;
+  if (description !== undefined) updateData.description = description;
+  if (isActive !== undefined) updateData.isActive = isActive;
+
+  if (value !== undefined) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue < 0) {
+      return res.status(400).json({ error: 'value must be a non-negative number' });
+    }
+    if ((valueType || req.body.valueType) === 'percentage' && numericValue > 100) {
+      return res.status(400).json({ error: 'percentage value cannot exceed 100' });
+    }
+    updateData.value = numericValue.toString();
+  }
+
+  try {
+    const [config] = await db.update(platformConfigs)
+      .set(updateData)
+      .where(eq(platformConfigs.id, id))
+      .returning();
+
+    if (!config) return res.status(404).json({ error: 'Config not found' });
+    res.json(config);
+  } catch (err: any) {
+    console.error('Update platform config error:', err);
+    res.status(500).json({ error: 'Could not update platform config' });
+  }
+};
+
+export const deletePlatformConfig = async (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    const [config] = await db.update(platformConfigs)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(platformConfigs.id, id))
+      .returning();
+
+    if (!config) return res.status(404).json({ error: 'Config not found' });
+    res.json({ message: 'Config disabled', config });
+  } catch (err: any) {
+    console.error('Disable platform config error:', err);
+    res.status(500).json({ error: 'Could not disable platform config' });
+  }
+};
 
 // export const getOverview = async (req: AuthenticatedRequest, res: Response) => {
 //   try {
@@ -101,47 +221,98 @@ export const processRentApplication = async (req: AuthenticatedRequest, res: Res
 //   }
 // };
 
-// export const listVettingQueue = async (req: AuthenticatedRequest, res: Response) => {
-//   try {
-//     const queue = await db.select({
-//       id: users.id,
-//       full_name: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
-//       email: users.email,
-//       role: users.role,
-//       base_hourly_rate: teacherProfiles.baseHourlyRate,
-//       credentials_url: teacherProfiles.credentialsUrl,
-//       is_approved: users.isVerified,
-//     })
-//     .from(users)
-//     .innerJoin(teacherProfiles, eq(users.id, teacherProfiles.userId))
-//     .where(eq(users.isVerified, false));
+export const listVettingQueue = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const teachers = await db.select({
+      id: users.id,
+      full_name: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
+      email: users.email,
+      base_hourly_rate: teacherProfiles.baseHourlyRate,
+      photoUrl: teacherProfiles.photoUrl,
+      videoVerified: teacherProfiles.videoVerified,
+      isApproved: teacherProfiles.isApproved,
+      isVerified: teacherProfiles.isVerified,
+      qualification: teacherProfiles.highestDegree,
+      subjects: teacherProfiles.subjects,
+      yearsExperience: teacherProfiles.yearsOfExperience,
+      fullName: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
+      baseHourlyRate: teacherProfiles.baseHourlyRate,
+    })
+      .from(users)
+      .innerJoin(teacherProfiles, eq(users.id, teacherProfiles.userId))
+      .where(and(
+        eq(users.role, 'teacher'),
+        eq(teacherProfiles.isApproved, false),
+      ));
 
-//     res.json(queue);
-//   } catch (err: any) {
-//     console.error('List vetting queue error:', err);
-//     res.status(500).json({ error: 'Could not fetch vetting queue' });
-//   }
-// };
+    // Attach documents for each teacher
+    const result = await Promise.all(teachers.map(async (teacher) => {
+      const docs = await db.query.teacherDocuments.findMany({
+        where: eq(teacherDocuments.teacherId, teacher.id),
+      });
+      return { ...teacher, documents: docs };
+    }));
 
-// export const processVetting = async (req: AuthenticatedRequest, res: Response) => {
-//   const { teacherId } = req.params;
-//   const { action } = req.body; // 'approve' or 'reject'
+    res.json(result);
+  } catch (err: any) {
+    console.error('List vetting queue error:', err);
+    res.status(500).json({ error: 'Could not fetch vetting queue' });
+  }
+};
 
-//   if (!['approve', 'reject'].includes(action)) {
-//     return res.status(400).json({ error: 'Invalid action' });
-//   }
+export const processVetting = async (req: AuthenticatedRequest, res: Response) => {
+  const { teacherId } = req.params;
+  const { action } = req.body;
 
-//   try {
-//     await db.update(users)
-//       .set({ isVerified: action === 'approve' })
-//       .where(eq(users.id, teacherId));
+  if (!['approve', 'reject'].includes(action)) {
+    return res.status(400).json({ error: 'Invalid action' });
+  }
 
-//     res.json({ message: `Teacher ${action}d successfully`, teacherId, action });
-//   } catch (err: any) {
-//     console.error('Process vetting error:', err);
-//     res.status(500).json({ error: 'Could not process vetting' });
-//   }
-// };
+  try {
+    await db.update(teacherProfiles)
+      .set({
+        isApproved: action === 'approve',
+        isVerified: action === 'approve',
+        updatedAt: new Date(),
+      })
+      .where(eq(teacherProfiles.userId, teacherId));
+
+    res.json({ message: `Teacher ${action}d successfully`, teacherId, action });
+  } catch (err: any) {
+    console.error('Process vetting error:', err);
+    res.status(500).json({ error: 'Could not process vetting' });
+  }
+};
+
+export const verifyDocument = async (req: AuthenticatedRequest, res: Response) => {
+  const { documentId } = req.params;
+
+  try {
+    await db.update(teacherDocuments)
+      .set({ verified: true, verifiedAt: new Date() })
+      .where(eq(teacherDocuments.id, documentId));
+
+    res.json({ message: 'Document verified successfully' });
+  } catch (err: any) {
+    console.error('Verify document error:', err);
+    res.status(500).json({ error: 'Could not verify document' });
+  }
+};
+
+export const rejectDocument = async (req: AuthenticatedRequest, res: Response) => {
+  const { documentId } = req.params;
+
+  try {
+    await db.update(teacherDocuments)
+      .set({ verified: false, verifiedAt: new Date() })
+      .where(eq(teacherDocuments.id, documentId));
+
+    res.json({ message: 'Document rejected' });
+  } catch (err: any) {
+    console.error('Reject document error:', err);
+    res.status(500).json({ error: 'Could not reject document' });
+  }
+};
 
 // export const payoutEscrow = async (req: AuthenticatedRequest, res: Response) => {
 //   const { bookingId } = req.params;

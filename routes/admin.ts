@@ -1,39 +1,41 @@
-// import express from 'express';
-// import authenticateToken from '../middleware/auth';
-// import {
-//   getOverview,
-//   listRentApplications,
-//   processRentApplication,
-//   listAmbassadors,
-//   listVettingQueue,
-//   processVetting,
-//   payoutEscrow,
-//   listDisputes,
-//   createDispute,
-//   updateDispute,
-//   getWelfareAnalytics,
-// } from '../controllers/adminController';
+import express from 'express';
+import authenticateToken from '../middleware/auth';
+import requireAdmin from '../middleware/requireAdmin';
+import {
+  listVettingQueue,
+  processVetting,
+  verifyDocument,
+  rejectDocument,
+  listRentApplications,
+  processRentApplication,
+  getWelfareAnalytics,
+  listPlatformConfigs,
+  createPlatformConfig,
+  updatePlatformConfig,
+  deletePlatformConfig,
+} from '../controllers/adminController';
 
-// const router = express.Router();
+const router = express.Router();
 
-// router.get('/overview', authenticateToken, getOverview as any);
-// router.get('/rent-applications', authenticateToken, listRentApplications as any);
-// router.post('/rent-applications/:id', authenticateToken, processRentApplication as any);
-// router.get('/ambassadors', authenticateToken, listAmbassadors as any);
+// Vetting queue
+router.get('/vetting', authenticateToken, listVettingQueue as any);
+router.post('/vetting/:teacherId', authenticateToken, processVetting as any);
 
-// // Vetting queue
-// router.get('/vetting', authenticateToken, listVettingQueue as any);
-// router.post('/vetting/:teacherId', authenticateToken, processVetting as any);
+// Document verification
+router.put('/documents/:documentId/verify', authenticateToken, verifyDocument as any);
+router.put('/documents/:documentId/reject', authenticateToken, rejectDocument as any);
 
-// // Escrow payout
-// router.post('/escrow/payout/:bookingId', authenticateToken, payoutEscrow as any);
+// Rent applications
+router.get('/rent-applications', authenticateToken, listRentApplications as any);
+router.post('/rent-applications/:id', authenticateToken, processRentApplication as any);
 
-// // Conflict Disputes
-// router.get('/disputes', authenticateToken, listDisputes as any);
-// router.post('/disputes', authenticateToken, createDispute as any);
-// router.patch('/disputes/:disputeId', authenticateToken, updateDispute as any);
+// Welfare Analytics
+router.get('/welfare-analytics', authenticateToken, getWelfareAnalytics as any);
 
-// // Welfare Analytics
-// router.get('/welfare-analytics', authenticateToken, getWelfareAnalytics as any);
+// Platform config: tutor/welfare/fee split rules
+router.get('/configs', authenticateToken, requireAdmin as any, listPlatformConfigs as any);
+router.post('/configs', authenticateToken, requireAdmin as any, createPlatformConfig as any);
+router.put('/configs/:id', authenticateToken, requireAdmin as any, updatePlatformConfig as any);
+router.delete('/configs/:id', authenticateToken, requireAdmin as any, deletePlatformConfig as any);
 
-// export default router;
+export default router;

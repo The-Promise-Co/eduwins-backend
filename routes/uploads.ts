@@ -5,7 +5,9 @@ import authenticateToken from '../middleware/auth';
 import {
   uploadHeadshot,
   uploadVideoIntro,
-  uploadCredentials,
+  uploadDocument,
+  listDocuments,
+  deleteDocument,
   uploadSubjectVideo,
   uploadTeachingMaterial,
   getProfileCompletion,
@@ -45,12 +47,10 @@ const upload = multer({
       if (!allowedVideoTypes.includes(file.mimetype)) {
         return cb(new Error('Only MP4, MPEG, WEBM and MOV videos are allowed'));
       }
-    } else if (file.fieldname === 'credentials' || file.fieldname === 'material') {
-      if (!allowedDocTypes.includes(file.mimetype) && file.fieldname === 'credentials') {
-         // Credentials must be PDF
-         if (!allowedDocTypes.includes(file.mimetype)) return cb(new Error('Credentials must be in PDF format'));
+    } else if (file.fieldname === 'file' || file.fieldname === 'material') {
+      if (!allowedDocTypes.includes(file.mimetype)) {
+        return cb(new Error('Only PDF files are allowed for documents'));
       }
-      // Teaching materials can be more flexible, but for now we stick to PDF/Docs (Wait, I'll just allow PDF for now as per schema)
     }
 
     cb(null, true);
@@ -62,7 +62,9 @@ const upload = multer({
  */
 router.post('/headshot', authenticateToken, upload.single('headshot'), uploadHeadshot as any);
 router.post('/video-intro', authenticateToken, upload.single('videoIntro'), uploadVideoIntro as any);
-router.post('/credentials', authenticateToken, upload.single('credentials'), uploadCredentials as any);
+router.post('/documents', authenticateToken, upload.single('file'), uploadDocument as any);
+router.get('/documents', authenticateToken, listDocuments as any);
+router.delete('/documents/:id', authenticateToken, deleteDocument as any);
 router.get('/profile-completion', authenticateToken, getProfileCompletion as any);
 
 /**

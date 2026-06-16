@@ -7,3 +7,5 @@ export * from './schema/premium';
 export * from './schema/financials';
 export * from './schema/courses';
 export * from './schema/children';
+export * from './schema/documents';
+export * from './schema/config';

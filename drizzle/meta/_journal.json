@@ -71,6 +71,13 @@
       "when": 1780352420781,
       "tag": "0009_curious_the_watchers",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781635062923,
+      "tag": "0010_bouncy_northstar",
+      "breakpoints": true
     }
   ]
 }

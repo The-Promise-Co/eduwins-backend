@@ -10,7 +10,10 @@ export const searchTeachers = async (req: Request, res: Response) => {
     const limit = parseInt(req.query.limit as string) || 20;
     const offset = (page - 1) * limit;
 
-    const conditions = [eq(teacherProfiles.isApproved, true)];
+    const conditions = [
+      eq(teacherProfiles.emailVerified, true),
+      sql`${teacherProfiles.photoUrl} IS NOT NULL`,
+    ];
 
     if (subject && typeof subject === 'string') {
       conditions.push(
@@ -31,7 +34,7 @@ export const searchTeachers = async (req: Request, res: Response) => {
       db.select({
         id: teacherProfiles.userId,
         full_name: sql<string>`CONCAT(${users.firstName}, ' ', ${users.lastName})`,
-        photo_url: sql<string>`COALESCE(${teacherProfiles.photoUrl}, '')`,
+        photo: teacherProfiles.photoUrl,
         subjects: teacherProfiles.subjects,
         baseHourlyRate: teacherProfiles.baseHourlyRate,
         rating: teacherProfiles.ratingAvg,
