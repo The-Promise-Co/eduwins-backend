@@ -2,6 +2,8 @@ import express from 'express';
 import authenticateToken from '../middleware/auth';
 import {
   register,
+  googleRegister,
+  googleLogin,
   verifyEmail,
   login,
   getProfile,
@@ -53,6 +55,7 @@ const router = express.Router();
  *         description: Otp sent
  */
 router.post('/register', register as any);
+router.post('/google/register', googleRegister as any);
 
 /**
  * @swagger
@@ -100,6 +103,7 @@ router.post('/resend-otp', resendOtp as any);
  *         description: Login successful
  */
 router.post('/login', login as any);
+router.post('/google/login', googleLogin as any);
 
 /**
  * POST /api/auth/forgot-password

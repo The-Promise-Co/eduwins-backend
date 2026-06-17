@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { OAuth2Client } from 'google-auth-library';
 import { db } from '../database/db';
 import { users, teacherProfiles, parentProfiles, verificationTokens, referrals } from '../database/schema';
 import { eq, or, and } from 'drizzle-orm';
@@ -24,6 +25,49 @@ const PLAN_PRICES: Record<string, number> = {
   monthly: 5000,
   quarterly: 12000,
   annual: 40000,
+};
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+const buildAuthPayload = async (user: any) => {
+  const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
+  const teacherProfile = await db.query.teacherProfiles.findFirst({ where: eq(teacherProfiles.userId, user.id) });
+  const parentProfile = await db.query.parentProfiles.findFirst({ where: eq(parentProfiles.userId, user.id) });
+
+  return {
+    token,
+    role: user.role,
+    user: {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      fullName: `${user.firstName} ${user.lastName}`,
+      email: user.email,
+      role: user.role,
+      referralCode: user.referralCode,
+      referralCount: user.referralCount || 0,
+      referralDiscount: parentProfile?.referralDiscount || 0,
+      welfareBoost: teacherProfile?.referralWelfareBoost || 0,
+    },
+  };
+};
+
+const verifyGoogleIdToken = async (idToken: string) => {
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    throw new Error('GOOGLE_CLIENT_ID is not configured');
+  }
+
+  const ticket = await googleClient.verifyIdToken({
+    idToken,
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
+  const payload = ticket.getPayload();
+
+  if (!payload?.email || !payload.email_verified) {
+    throw new Error('Google email is not verified');
+  }
+
+  return payload;
 };
 
 
@@ -122,6 +166,161 @@ export const register = async (req: Request, res: Response) => {
   } catch (err: any) {
     logger.error({ err }, 'Registration error');
     res.status(500).json({ error: 'Registration failed. Please try again later.' });
+  }
+};
+
+export const googleRegister = async (req: Request, res: Response) => {
+  let { idToken, role, referralCode } = req.body;
+
+  if (role === 'tutor') {
+    role = 'teacher';
+  }
+
+  try {
+    if (!idToken || !role) {
+      return res.status(400).json({ error: 'Google token and role are required' });
+    }
+
+    if (!['parent', 'teacher'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role selected' });
+    }
+
+    const googleUser = await verifyGoogleIdToken(idToken);
+    const email = googleUser.email!.toLowerCase();
+
+    const existingUser = await db.query.users.findFirst({
+      where: eq(users.email, email),
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already registered. Please sign in with Google instead.' });
+    }
+
+    let referredById: string | null = null;
+    if (referralCode) {
+      const referrer = await db.query.users.findFirst({
+        where: eq(users.referralCode, referralCode),
+      });
+      if (referrer) {
+        referredById = referrer.id;
+      }
+    }
+
+    const names = (googleUser.name || '').trim().split(/\s+/).filter(Boolean);
+    const firstName = googleUser.given_name || names[0] || 'Google';
+    const lastName = googleUser.family_name || names.slice(1).join(' ') || 'User';
+    const userId = Math.random().toString(36).substring(2, 15);
+    const generatedReferralCode = createReferralCode(8);
+
+    const [createdUser] = await db.insert(users).values({
+      id: userId,
+      email,
+      phone: null,
+      passwordHash: null,
+      firstName,
+      lastName,
+      role,
+      isVerified: true,
+      trustScore: 0,
+      referralCode: generatedReferralCode,
+      referralCount: 0,
+      referredBy: referredById,
+      referralRewarded: false,
+      photoUrl: googleUser.picture || null,
+    }).returning();
+
+    if (role === 'teacher') {
+      await db.insert(teacherProfiles).values({
+        userId,
+        emailVerified: true,
+        baseHourlyRate: '0',
+        totalEarnings: '0',
+        walletBalance: '0',
+        welfareBalance: '0',
+        referralWelfareBoost: '0',
+        ratingAvg: '0',
+        totalSessions: 0,
+        isApproved: false,
+      }).onConflictDoNothing();
+    } else {
+      await db.insert(parentProfiles).values({
+        userId,
+        referralDiscount: '0',
+      }).onConflictDoNothing();
+    }
+
+    if (referredById) {
+      await registerReferral(referredById, userId);
+      await db.update(users)
+        .set({ referralRewarded: true })
+        .where(eq(users.id, userId));
+    }
+
+    res.status(201).json(await buildAuthPayload(createdUser));
+    logger.info({ userId, email, role }, 'New Google user registered successfully');
+  } catch (err: any) {
+    logger.error({ err }, 'Google registration error');
+    res.status(500).json({ error: err.message || 'Google registration failed. Please try again later.' });
+  }
+};
+
+export const googleLogin = async (req: Request, res: Response) => {
+  const { idToken } = req.body;
+
+  try {
+    if (!idToken) {
+      return res.status(400).json({ error: 'Google token is required' });
+    }
+
+    const googleUser = await verifyGoogleIdToken(idToken);
+    const email = googleUser.email!.toLowerCase();
+    const user = await db.query.users.findFirst({
+      where: eq(users.email, email),
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'No account found for this Google email. Please register first.' });
+    }
+
+    if (!user.isVerified) {
+      await db.update(users)
+        .set({ isVerified: true, photoUrl: user.photoUrl || googleUser.picture || null })
+        .where(eq(users.id, user.id));
+
+      if (user.role === 'teacher') {
+        await db.insert(teacherProfiles).values({
+          userId: user.id,
+          emailVerified: true,
+          baseHourlyRate: '0',
+          totalEarnings: '0',
+          walletBalance: '0',
+          welfareBalance: '0',
+          referralWelfareBoost: '0',
+          ratingAvg: '0',
+          totalSessions: 0,
+          isApproved: false,
+        }).onConflictDoNothing();
+      } else if (user.role === 'parent') {
+        await db.insert(parentProfiles).values({
+          userId: user.id,
+          referralDiscount: '0',
+        }).onConflictDoNothing();
+      }
+
+      if (user.referredBy && !user.referralRewarded) {
+        await registerReferral(user.referredBy, user.id);
+        await db.update(users)
+          .set({ referralRewarded: true })
+          .where(eq(users.id, user.id));
+      }
+    }
+
+    const authUser = { ...user, isVerified: true, photoUrl: user.photoUrl || googleUser.picture || null };
+    res.json(await buildAuthPayload(authUser));
+    logger.info({ userId: user.id, role: user.role }, 'User logged in with Google successfully');
+  } catch (err: any) {
+    logger.error({ err }, 'Google login error');
+    res.status(500).json({ error: err.message || 'Google login failed. Please try again later.' });
   }
 };
 
