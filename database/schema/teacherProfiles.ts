@@ -64,9 +64,6 @@ export const teacherProfiles = pgTable('teacher_profiles', {
 
     baseHourlyRate: decimal('base_hourly_rate', { precision: 20, scale: 2 }).default('0').notNull(),
     totalEarnings: decimal('total_earnings', { precision: 20, scale: 2 }).default('0').notNull(),
-    walletBalance: decimal('wallet_balance', { precision: 20, scale: 2 }).default('0').notNull(),
-    welfareBalance: decimal('welfare_balance', { precision: 20, scale: 2 }).default('0').notNull(),
-    referralWelfareBoost: decimal('referral_welfare_boost', { precision: 20, scale: 2 }).default('0').notNull(),
 
     // ── Identity (teacher editable) ──────────────────────────────────────────
 

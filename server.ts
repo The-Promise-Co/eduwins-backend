@@ -32,6 +32,7 @@ import courseRoutes from './routes/courses';
 import referralRoutes from './routes/referrals';
 import childrenRoutes from './routes/children';
 import teacherRoutes from './routes/teachers';
+import walletRoutes from './routes/wallets';
 
 import authenticateToken from './middleware/auth';
 import { initRedis } from './config/redis';
@@ -202,6 +203,7 @@ app.use('/api/courses', courseRoutes);
 app.use('/api/referrals', referralRoutes);
 app.use('/api/children', childrenRoutes);
 app.use('/api/teachers', teacherRoutes);
+app.use('/api/wallets', walletRoutes);
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'Backend is running', timestamp: new Date() });

@@ -5,7 +5,6 @@ import {
   integer,
   boolean,
   timestamp,
-  decimal,
 } from 'drizzle-orm/pg-core';
 import { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 
@@ -54,7 +53,6 @@ export const users = pgTable('users', {
 export const parentProfiles = pgTable('parent_profiles', {
   userId: varchar('user_id', { length: 255 }).primaryKey().references(() => users.id),
   defaultLocationLga: varchar('default_location_lga', { length: 255 }),
-  referralDiscount: decimal('referral_discount', { precision: 20, scale: 2 }).default('0'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -80,4 +78,3 @@ export type User = InferSelectModel<typeof users>;
 export type NewUser = InferInsertModel<typeof users>;
 export type ParentProfile = InferSelectModel<typeof parentProfiles>;
 export type VerificationToken = InferSelectModel<typeof verificationTokens>;
-

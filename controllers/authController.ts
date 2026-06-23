@@ -9,6 +9,7 @@ import { emailService } from '../utils/emailSender';
 import { generateOTP } from '../utils/otpGenerator';
 import crypto from 'crypto';
 import logger from '../utils/logger';
+import { creditWallet, ensureUserWallets } from '../services/walletService';
 
 const TEACHER_REFERRAL_WELFARE_BOOST = 1500; // ₦1,500 welfare boost per referral
 const PARENT_REFERRAL_DISCOUNT_VALUE = 1000; // ₦1,000 booking credit per referral
@@ -31,8 +32,6 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const buildAuthPayload = async (user: any) => {
   const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
-  const teacherProfile = await db.query.teacherProfiles.findFirst({ where: eq(teacherProfiles.userId, user.id) });
-  const parentProfile = await db.query.parentProfiles.findFirst({ where: eq(parentProfiles.userId, user.id) });
 
   return {
     token,
@@ -46,8 +45,6 @@ const buildAuthPayload = async (user: any) => {
       role: user.role,
       referralCode: user.referralCode,
       referralCount: user.referralCount || 0,
-      referralDiscount: parentProfile?.referralDiscount || 0,
-      welfareBoost: teacherProfile?.referralWelfareBoost || 0,
     },
   };
 };
@@ -235,9 +232,6 @@ export const googleRegister = async (req: Request, res: Response) => {
         emailVerified: true,
         baseHourlyRate: '0',
         totalEarnings: '0',
-        walletBalance: '0',
-        welfareBalance: '0',
-        referralWelfareBoost: '0',
         ratingAvg: '0',
         totalSessions: 0,
         isApproved: false,
@@ -245,9 +239,10 @@ export const googleRegister = async (req: Request, res: Response) => {
     } else {
       await db.insert(parentProfiles).values({
         userId,
-        referralDiscount: '0',
       }).onConflictDoNothing();
     }
+
+    await ensureUserWallets(userId, role);
 
     if (referredById) {
       await registerReferral(referredById, userId);
@@ -293,9 +288,6 @@ export const googleLogin = async (req: Request, res: Response) => {
           emailVerified: true,
           baseHourlyRate: '0',
           totalEarnings: '0',
-          walletBalance: '0',
-          welfareBalance: '0',
-          referralWelfareBoost: '0',
           ratingAvg: '0',
           totalSessions: 0,
           isApproved: false,
@@ -303,9 +295,10 @@ export const googleLogin = async (req: Request, res: Response) => {
       } else if (user.role === 'parent') {
         await db.insert(parentProfiles).values({
           userId: user.id,
-          referralDiscount: '0',
         }).onConflictDoNothing();
       }
+
+      await ensureUserWallets(user.id, user.role);
 
       if (user.referredBy && !user.referralRewarded) {
         await registerReferral(user.referredBy, user.id);
@@ -382,9 +375,6 @@ export const verifyEmail = async (req: Request, res: Response) => {
         emailVerified: true,
         baseHourlyRate: '0',
         totalEarnings: '0',
-        walletBalance: '0',
-        welfareBalance: '0',
-        referralWelfareBoost: '0',
         ratingAvg: '0',
         totalSessions: 0,
         isApproved: false,
@@ -392,9 +382,10 @@ export const verifyEmail = async (req: Request, res: Response) => {
     } else if (user.role === 'parent') {
       await db.insert(parentProfiles).values({
         userId: user.id,
-        referralDiscount: '0',
       }).onConflictDoNothing();
     }
+
+    await ensureUserWallets(user.id, user.role);
 
     // Register referral tracking row (reward credited later, on subscription)
     if (user.referredBy && !user.referralRewarded) {
@@ -503,9 +494,6 @@ export const login = async (req: Request, res: Response) => {
 
     const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
 
-    const teacherProfile = await db.query.teacherProfiles.findFirst({ where: eq(teacherProfiles.userId, user.id) });
-    const parentProfile = await db.query.parentProfiles.findFirst({ where: eq(parentProfiles.userId, user.id) });
-
     res.json({
       token,
       role: user.role,
@@ -518,8 +506,6 @@ export const login = async (req: Request, res: Response) => {
         role: user.role,
         referralCode: user.referralCode,
         referralCount: user.referralCount || 0,
-        referralDiscount: parentProfile?.referralDiscount || 0,
-        welfareBoost: teacherProfile?.referralWelfareBoost || 0,
       },
     });
     logger.info({ userId: user.id, role: user.role }, 'User logged in successfully');
@@ -596,7 +582,6 @@ export const getProfile = async (req: any, res: Response) => {
     }
 
     const teacherProfile = await db.query.teacherProfiles.findFirst({ where: eq(teacherProfiles.userId, userId) });
-    const parentProfile = await db.query.parentProfiles.findFirst({ where: eq(parentProfiles.userId, userId) });
 
     res.json({
       id: user.id,
@@ -610,9 +595,6 @@ export const getProfile = async (req: any, res: Response) => {
       referralCode: user.referralCode,
       referralCount: user.referralCount || 0,
       referredBy: user.referredBy,
-      referralDiscount: parentProfile?.referralDiscount || 0,
-      welfareBoost: teacherProfile?.referralWelfareBoost || 0,
-      welfareBalance: teacherProfile?.welfareBalance || 0,
       twoFactorEnabled: user.twoFactorEnabled || false,
       teacherProfile: teacherProfile ? {
         pronouns: teacherProfile.pronouns || '',
@@ -875,31 +857,18 @@ export async function creditReferralReward(
   });
   if (!referrer) return;
 
-  // Apply credit based on referrer role
-  if (referrer.role === 'teacher') {
-    const profile = await db.query.teacherProfiles.findFirst({
-      where: eq(teacherProfiles.userId, referral.referrerId),
+  if (referrer.role === 'teacher' || referrer.role === 'parent') {
+    await ensureUserWallets(referrer.id, referrer.role);
+    await creditWallet({
+      ownerId: referrer.id,
+      walletType: 'referrals',
+      amount: rewardAmount,
+      type: 'referral_reward',
+      referenceType: 'referral',
+      referenceId: referral.id,
+      description: 'Referral reward credited after referred user subscribed',
+      metadata: { refereeId, plan, price },
     });
-    if (profile) {
-      const currentWelfare = parseFloat(profile.welfareBalance?.toString() || '0');
-      const currentBoost  = parseFloat(profile.referralWelfareBoost?.toString() || '0');
-      await db.update(teacherProfiles)
-        .set({
-          welfareBalance: (currentWelfare + rewardAmount).toString(),
-          referralWelfareBoost: (currentBoost + rewardAmount).toString(),
-        })
-        .where(eq(teacherProfiles.userId, referral.referrerId));
-    }
-  } else if (referrer.role === 'parent') {
-    const profile = await db.query.parentProfiles.findFirst({
-      where: eq(parentProfiles.userId, referral.referrerId),
-    });
-    if (profile) {
-      const currentDiscount = parseFloat(profile.referralDiscount?.toString() || '0');
-      await db.update(parentProfiles)
-        .set({ referralDiscount: (currentDiscount + rewardAmount).toString() })
-        .where(eq(parentProfiles.userId, referral.referrerId));
-    }
   }
 
   logger.info({ refereeId, referrerId: referral.referrerId, plan, rewardAmount }, 'Referral reward credited');
@@ -1066,9 +1035,6 @@ export const verify2FA = async (req: Request, res: Response) => {
 
     const jwtToken = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
 
-    const teacherProfile = await db.query.teacherProfiles.findFirst({ where: eq(teacherProfiles.userId, user.id) });
-    const parentProfile = await db.query.parentProfiles.findFirst({ where: eq(parentProfiles.userId, user.id) });
-
     res.json({
       token: jwtToken,
       role: user.role,
@@ -1081,8 +1047,6 @@ export const verify2FA = async (req: Request, res: Response) => {
         role: user.role,
         referralCode: user.referralCode,
         referralCount: user.referralCount || 0,
-        referralDiscount: parentProfile?.referralDiscount || 0,
-        welfareBoost: teacherProfile?.referralWelfareBoost || 0,
       },
     });
     logger.info({ userId: user.id, role: user.role }, 'User 2FA verified successfully');

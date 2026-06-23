@@ -2,12 +2,10 @@ import { Request, Response } from 'express';
 import { db } from '../database/db';
 import { 
   transactions, 
-  users, 
-  teacherProfiles, 
   welfareFunds, 
-  bookings 
 } from '../database/schema';
 import { eq, sql } from 'drizzle-orm';
+import { creditWallet, debitWallet, ensurePlatformWallet, ensureUserWallets, getUserWallets } from '../services/walletService';
 
 /**
  * Payment Split System:
@@ -54,23 +52,42 @@ export const processPaymentWithWelfareFund = async (req: Request, res: Response)
     await db.insert(transactions).values(newTransaction);
 
     if (status === 'completed') {
-      // Update teacher wallet balance in teacher_profiles
-      const profile = await db.query.teacherProfiles.findFirst({
-        where: eq(teacherProfiles.userId, teacherId),
+      await ensureUserWallets(teacherId, 'teacher');
+      await ensurePlatformWallet();
+
+      await creditWallet({
+        ownerId: teacherId,
+        walletType: 'main',
+        amount: teacherEarnings,
+        type: 'lesson_earning',
+        referenceType: 'lesson',
+        referenceId: lessonId,
+        description: 'Lesson earning credited',
+        metadata: { parentId, grossAmount: numAmount, status },
       });
 
-      if (profile) {
-        const currentBalance = parseFloat(profile.walletBalance?.toString() || '0');
-        const currentWelfare = parseFloat(profile.welfareBalance?.toString() || '0');
+      await creditWallet({
+        ownerId: teacherId,
+        walletType: 'welfare',
+        amount: welfareFund,
+        type: 'welfare_contribution',
+        referenceType: 'lesson',
+        referenceId: lessonId,
+        description: 'Welfare contribution credited',
+        metadata: { parentId, grossAmount: numAmount, status },
+      });
 
-        await db.update(teacherProfiles)
-          .set({
-            walletBalance: (currentBalance + teacherEarnings).toString(),
-            welfareBalance: (currentWelfare + welfareFund).toString(),
-            updatedAt: new Date(),
-          })
-          .where(eq(teacherProfiles.userId, teacherId));
-      }
+      await creditWallet({
+        ownerType: 'platform',
+        ownerId: null,
+        walletType: 'fees',
+        amount: platformFee,
+        type: 'platform_fee',
+        referenceType: 'lesson',
+        referenceId: lessonId,
+        description: 'Platform fee credited',
+        metadata: { teacherId, parentId, grossAmount: numAmount, status },
+      });
 
       // Record welfare fund contribution
       const welfareFundId = Math.random().toString(36).substring(2, 15);
@@ -99,13 +116,9 @@ export const getWelfareFund = async (req: Request, res: Response) => {
   const { teacherId } = req.params;
 
   try {
-    const profile = await db.query.teacherProfiles.findFirst({
-      where: eq(teacherProfiles.userId, teacherId),
-    });
-
-    if (!profile) {
-      return res.status(404).json({ error: 'Teacher profile not found' });
-    }
+    await ensureUserWallets(teacherId, 'teacher');
+    const walletRows = await getUserWallets(teacherId);
+    const welfareWallet = walletRows.find((wallet) => wallet.walletType === 'welfare');
 
     const contributions = await db.select()
       .from(welfareFunds)
@@ -114,7 +127,7 @@ export const getWelfareFund = async (req: Request, res: Response) => {
 
     res.status(200).json({
       teacherId,
-      welfare_balance: profile.welfareBalance,
+      welfare_balance: welfareWallet?.balance || '0',
       contributions,
     });
   } catch (err: any) {
@@ -125,8 +138,7 @@ export const getWelfareFund = async (req: Request, res: Response) => {
 
 export const unlockWelfareFunds = async (req: Request, res: Response) => {
   try {
-    // Logic to move 'locked' funds to 'available' if we had split balances in schema
-    // In our schema teacher_profiles has welfareBalance. 
+    // Logic to move 'locked' funds to 'available' for contribution records.
     // We'll mark all locked welfare_funds as 'available'
     await db.update(welfareFunds)
       .set({ status: 'available' })
@@ -165,16 +177,10 @@ export const withdrawFromWelfareFund = async (req: Request, res: Response) => {
 
     const numAmount = parseFloat(amount.toString());
 
-    // Check available balance in teacher_profiles
-    const profile = await db.query.teacherProfiles.findFirst({
-      where: eq(teacherProfiles.userId, teacherId),
-    });
-
-    if (!profile) {
-      return res.status(404).json({ error: 'Teacher profile not found' });
-    }
-
-    const availableWelfare = parseFloat(profile.welfareBalance?.toString() || '0');
+    await ensureUserWallets(teacherId, 'teacher');
+    const walletRows = await getUserWallets(teacherId);
+    const welfareWallet = walletRows.find((wallet) => wallet.walletType === 'welfare');
+    const availableWelfare = parseFloat(welfareWallet?.balance?.toString() || '0');
 
     if (availableWelfare < numAmount) {
       return res.status(400).json({
@@ -184,13 +190,15 @@ export const withdrawFromWelfareFund = async (req: Request, res: Response) => {
       });
     }
 
-    // Process withdrawal: update profile balance
-    await db.update(teacherProfiles)
-      .set({
-        welfareBalance: (availableWelfare - numAmount).toString(),
-        updatedAt: new Date(),
-      })
-      .where(eq(teacherProfiles.userId, teacherId));
+    await debitWallet({
+      ownerId: teacherId,
+      walletType: 'welfare',
+      amount: numAmount,
+      type: 'welfare_withdrawal',
+      referenceType: 'withdrawal',
+      description: 'Welfare withdrawal debited',
+      metadata: { status: 'completed' },
+    });
 
     // Record the withdrawal as a transaction
     const transactionId = Math.random().toString(36).substring(2, 15);

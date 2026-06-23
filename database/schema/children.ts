@@ -27,6 +27,7 @@ export const children = pgTable('children', {
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
 
+
   firstName: varchar('first_name', { length: 255 }).notNull(),
   lastName: varchar('last_name', { length: 255 }).notNull(),
 

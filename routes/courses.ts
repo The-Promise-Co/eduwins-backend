@@ -12,7 +12,7 @@ import {
   deleteLesson,
   enrollCourse,
   getEnrolledCourses,
-} from '../controllers/courseController';
+} from '../controllers/courses';
 
 const router = express.Router();
 

@@ -4,7 +4,7 @@ import {
   initializePayment,
   verifyPayment,
   paystackWebhook,
-} from '../controllers/paystackController';
+} from '../controllers/paystack';
 
 const router = express.Router();
 
