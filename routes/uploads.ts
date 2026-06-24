@@ -8,8 +8,6 @@ import {
   uploadDocument,
   listDocuments,
   deleteDocument,
-  uploadSubjectVideo,
-  uploadTeachingMaterial,
   getProfileCompletion,
 } from '../controllers/uploadController';
 import { logger } from 'utils/logger';
@@ -87,11 +85,5 @@ router.post('/sign', authenticateToken, async (req, res) => {
   }
 });
 
-
-/**
- * Premium Uploads
- */
-router.post('/subject-video', authenticateToken, upload.single('video'), uploadSubjectVideo as any);
-router.post('/teaching-material', authenticateToken, upload.single('material'), uploadTeachingMaterial as any);
 
 export default router;

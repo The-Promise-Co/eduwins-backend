@@ -21,7 +21,7 @@ const PLAN_REWARDS: Record<string, number> = {
   annual: 150,
 };
 
-// Subscription plan prices (duplicated here for reward calculation; source of truth is premiumController)
+// Subscription plan prices for referral reward calculation.
 const PLAN_PRICES: Record<string, number> = {
   monthly: 5000,
   quarterly: 12000,

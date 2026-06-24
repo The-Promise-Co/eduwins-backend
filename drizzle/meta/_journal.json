@@ -85,6 +85,27 @@
       "when": 1782067007000,
       "tag": "0011_wet_ironclad",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1782249416253,
+      "tag": "0012_bright_shiva",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782250054933,
+      "tag": "0013_clear_red_hulk",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782292806237,
+      "tag": "0014_spotty_warpath",
+      "breakpoints": true
     }
   ]
 }

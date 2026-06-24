@@ -1,0 +1,1 @@
+ALTER TABLE "withdrawals" ADD CONSTRAINT "withdrawals_paystack_reference_unique" UNIQUE("paystack_reference");

@@ -9,6 +9,7 @@ import {
   timestamp,
   pgEnum,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { users } from "./users";
@@ -127,7 +128,33 @@ export const courseEnrollments = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => ({
-    courseUserIdx: index("course_enrollments_course_user_idx").on(t.courseId, t.userId),
+    courseUserIdx: uniqueIndex("course_enrollments_course_user_unique").on(t.courseId, t.userId),
+  })
+);
+
+// ─── Course Progress ──────────────────────────────────────────────────────────
+
+export const courseProgress = pgTable(
+  "course_progress",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    userId: varchar("user_id", { length: 255 })
+      .notNull()
+      .references(() => users.id),
+    lessonId: uuid("lesson_id")
+      .notNull()
+      .references(() => courseLessons.id, { onDelete: "cascade" }),
+    completed: boolean("completed").notNull().default(false),
+    completedAt: timestamp("completed_at"),
+    lastPositionSeconds: integer("last_position_seconds").notNull().default(0),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    courseUserLessonIdx: uniqueIndex("course_progress_course_user_lesson_unique").on(t.courseId, t.userId, t.lessonId),
   })
 );
 
@@ -140,6 +167,7 @@ export const coursesRelations = relations(courses, ({ many, one }) => ({
     references: [subjects.id],
   }),
   enrollments: many(courseEnrollments),
+  progress: many(courseProgress),
 }));
 
 export const modulesRelations = relations(modules, ({ one, many }) => ({
@@ -156,6 +184,12 @@ export const courseEnrollmentsRelations = relations(courseEnrollments, ({ one })
   user: one(users, { fields: [courseEnrollments.userId], references: [users.id] }),
 }));
 
+export const courseProgressRelations = relations(courseProgress, ({ one }) => ({
+  course: one(courses, { fields: [courseProgress.courseId], references: [courses.id] }),
+  lesson: one(courseLessons, { fields: [courseProgress.lessonId], references: [courseLessons.id] }),
+  user: one(users, { fields: [courseProgress.userId], references: [users.id] }),
+}));
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type Course = typeof courses.$inferSelect;
@@ -166,6 +200,8 @@ export type CourseLesson = typeof courseLessons.$inferSelect;
 export type NewCourseLesson = typeof courseLessons.$inferInsert;
 export type CourseEnrollment = typeof courseEnrollments.$inferSelect;
 export type NewCourseEnrollment = typeof courseEnrollments.$inferInsert;
+export type CourseProgress = typeof courseProgress.$inferSelect;
+export type NewCourseProgress = typeof courseProgress.$inferInsert;
 
 export const LEVELS = ["beginner", "intermediate", "advanced", "all_levels"] as const;
 export type CourseLevel = typeof LEVELS[number];

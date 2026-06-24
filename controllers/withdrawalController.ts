@@ -3,12 +3,8 @@ import axios from 'axios';
 import { db } from '../database/db';
 import {
   withdrawals,
-  userEarnings, // Renamed from 'earnings' to avoid collisions if necessary
-  teacherProfiles,
-  mortgages,
-  welfareFunds,
   notifications,
-  earnings as earningsTable // Using the schema name
+  earnings,
 } from '../database/schema';
 import { eq, and, or, sql, desc } from 'drizzle-orm';
 import { calculateTotalWelfareFund } from '../utils/welfareCalculator';
@@ -43,18 +39,12 @@ export const getAvailableBalance = async (req: AuthenticatedRequest, res: Respon
     const teacherId = req.user.id;
 
     // Fetch teacher earnings
-    const teacherEarnings = await db.query.earningsTable.findFirst({
-      where: eq(earningsTable.teacherId, teacherId),
+    const teacherEarnings = await db.query.earnings.findFirst({
+      where: eq(earnings.teacherId, teacherId),
     });
 
     // Calculate total welfare fund
     const totalWelfareFund = await calculateTotalWelfareFund(teacherId);
-
-    // Fetch active mortgage payment
-    const activeMortgage = await db.query.mortgages.findFirst({
-      where: and(eq(mortgages.teacherId, teacherId), eq(mortgages.status, 'active')),
-    });
-    const activeMortgagePayment = parseFloat(activeMortgage?.monthlyPayment?.toString() || '0');
 
     // Fetch pending/processing withdrawals
     const pendingWithdrawalSum = await db.select({
@@ -73,7 +63,7 @@ export const getAvailableBalance = async (req: AuthenticatedRequest, res: Respon
     const totalAcquired = parseFloat(teacherEarnings?.acquiredFromLessons?.toString() || '0');
 
     // Calculate accessible balance
-    const deductions = totalWelfareFund + activeMortgagePayment;
+    const deductions = totalWelfareFund;
     const accessibleBalance = Math.max(0, totalAcquired - deductions - reservedAmount);
 
     res.json({
@@ -82,7 +72,6 @@ export const getAvailableBalance = async (req: AuthenticatedRequest, res: Respon
       totalAcquired,
       deductions: {
         welfareFund: totalWelfareFund,
-        mortgagePayment: activeMortgagePayment,
         reserved: reservedAmount,
       },
       availableBalance: Math.floor(accessibleBalance),
@@ -115,8 +104,8 @@ export const initiateWithdrawal = async (req: AuthenticatedRequest, res: Respons
     }
 
     // Get available balance (re-calculating for security)
-    const teacherEarnings = await db.query.earningsTable.findFirst({
-      where: eq(earningsTable.teacherId, teacherId),
+    const teacherEarnings = await db.query.earnings.findFirst({
+      where: eq(earnings.teacherId, teacherId),
     });
     const totalWelfareFund = await calculateTotalWelfareFund(teacherId);
     const totalAcquired = parseFloat(teacherEarnings?.acquiredFromLessons?.toString() || '0');
@@ -169,11 +158,11 @@ export const initiateWithdrawal = async (req: AuthenticatedRequest, res: Respons
     await db.insert(withdrawals).values(withdrawalData);
 
     // Deduct from earnings (reserve funds)
-    await db.update(earningsTable)
+    await db.update(earnings)
       .set({
         acquiredFromLessons: (totalAcquired - amount).toString(),
       })
-      .where(eq(earningsTable.teacherId, teacherId));
+      .where(eq(earnings.teacherId, teacherId));
 
     // Notify user
     await db.insert(notifications).values({
@@ -258,12 +247,12 @@ export const processWithdrawal = async (req: Request, res: Response) => {
       }).where(eq(withdrawals.id, withdrawalId));
 
       // Refund
-      const currentEarnings = await db.query.earningsTable.findFirst({ where: eq(earningsTable.teacherId, teacherId) });
+      const currentEarnings = await db.query.earnings.findFirst({ where: eq(earnings.teacherId, teacherId) });
       const refundAmount = parseFloat(withdrawal.amount?.toString() || '0');
 
-      await db.update(earningsTable).set({
+      await db.update(earnings).set({
         acquiredFromLessons: (parseFloat(currentEarnings?.acquiredFromLessons?.toString() || '0') + refundAmount).toString()
-      }).where(eq(earningsTable.teacherId, teacherId));
+      }).where(eq(earnings.teacherId, teacherId));
 
       res.status(500).json({ error: 'Transfer failed' });
     }
@@ -309,12 +298,12 @@ export const cancelWithdrawal = async (req: AuthenticatedRequest, res: Response)
     }).where(eq(withdrawals.id, withdrawalId));
 
     // Refund
-    const currentEarnings = await db.query.earningsTable.findFirst({ where: eq(earningsTable.teacherId, teacherId) });
+    const currentEarnings = await db.query.earnings.findFirst({ where: eq(earnings.teacherId, teacherId) });
     const refundAmount = parseFloat(withdrawal.amount?.toString() || '0');
 
-    await db.update(earningsTable).set({
+    await db.update(earnings).set({
       acquiredFromLessons: (parseFloat(currentEarnings?.acquiredFromLessons?.toString() || '0') + refundAmount).toString()
-    }).where(eq(earningsTable.teacherId, teacherId));
+    }).where(eq(earnings.teacherId, teacherId));
 
     res.json({ success: true, message: 'Withdrawal cancelled' });
   } catch (error) {
@@ -352,4 +341,3 @@ export const getWithdrawalDetails = async (req: AuthenticatedRequest, res: Respo
     res.status(500).json({ error: 'Could not fetch withdrawal details' });
   }
 };
-

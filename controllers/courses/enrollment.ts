@@ -3,11 +3,14 @@ import { db } from '../../database/db';
 import { courses, courseEnrollments } from '../../database/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import { attachTeacherNames } from './attachTeacherNames';
+import { initializePaystackTransaction } from '../paystack/initializePayment';
+import { buildProgressSummary } from './progress';
 
 interface AuthenticatedRequest extends Request {
   user: {
     id: string;
     role: string;
+    email?: string;
   }
 }
 
@@ -47,13 +50,19 @@ export const enrollUserInCourse = async (courseId: string, userId: string) => {
     return { enrollment, alreadyEnrolled: false };
 };
 
-// Enroll in a free course
+// Enroll in a course. Free courses enroll immediately; paid courses return Paystack authorization.
 export const enrollCourse = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id: courseId } = req.params;
     const userId = req.user.id;
 
-    const [course] = await db.select({ id: courses.id, is_free: courses.is_free })
+    const [course] = await db.select({
+      id: courses.id,
+      is_free: courses.is_free,
+      price: courses.price,
+      teacher_id: courses.teacher_id,
+      title: courses.title,
+    })
       .from(courses)
       .where(eq(courses.id, courseId))
       .limit(1);
@@ -62,21 +71,56 @@ export const enrollCourse = async (req: AuthenticatedRequest, res: Response) => 
       return res.status(404).json({ error: 'Course not found' });
     }
 
-    if (!course.is_free) {
-      return res.status(402).json({ error: 'Payment required before enrolling in this course' });
-    }
+    const existing = await db.select({ id: courseEnrollments.id })
+      .from(courseEnrollments)
+      .where(and(eq(courseEnrollments.courseId, courseId), eq(courseEnrollments.userId, userId)))
+      .limit(1);
 
-    const result = await enrollUserInCourse(courseId, userId);
-
-    if (!result) {
-      return res.status(404).json({ error: 'Course not found' });
-    }
-
-    if (result.alreadyEnrolled) {
+    if (existing[0]) {
       return res.status(409).json({ error: 'Already enrolled in this course' });
     }
 
-    res.status(201).json(result.enrollment);
+    if (course.is_free) {
+      const result = await enrollUserInCourse(courseId, userId);
+
+      if (!result) {
+        return res.status(404).json({ error: 'Course not found' });
+      }
+
+      return res.status(201).json({ enrollment: result.enrollment, requiresPayment: false });
+    }
+
+    const amount = Number(course.price || 0);
+    const email = req.user.email || req.body.email;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required to initialize payment' });
+    }
+
+    if (amount <= 0) {
+      return res.status(400).json({ error: 'Invalid course price' });
+    }
+
+    const payment = await initializePaystackTransaction({
+      email,
+      amount,
+      callback_url: req.body.callback_url || `${process.env.FRONTEND_URL}/courses/payment/confirm`,
+      metadata: {
+        payment_for: 'course',
+        course_id: courseId,
+        user_id: userId,
+        teacher_id: course.teacher_id,
+        course_title: course.title,
+      },
+    });
+
+    res.status(200).json({
+      requiresPayment: true,
+      authorizationUrl: payment.authorizationUrl,
+      authorization_url: payment.authorization_url,
+      reference: payment.reference,
+      access_code: payment.access_code,
+    });
   } catch (err: any) {
     console.error('Enroll course error:', err);
     res.status(500).json({ error: 'Failed to enroll in course' });
@@ -117,16 +161,19 @@ export const getEnrolledCourses = async (req: AuthenticatedRequest, res: Respons
 
     const total = totalResult[0]?.count || 0;
 
-    const data = enrollmentRows.map(row => {
+    const data = await Promise.all(enrollmentRows.map(async row => {
       const course = row.course;
       const lessonCount = (course as any).modules?.reduce((acc: number, mod: any) => acc + (mod.lessons?.length || 0), 0) || 0;
+      const progress = await buildProgressSummary(course.id, userId);
       const { modules, ...rest } = course as any;
       return {
         ...rest,
         lesson_count: lessonCount,
+        progress_percent: progress.progressPercent,
+        progress,
         enrolled_at: row.createdAt,
       };
-    });
+    }));
     const dataWithTeacherNames = await attachTeacherNames(data);
 
     res.status(200).json({

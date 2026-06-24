@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import { db } from '../database/db';
 import {
   users,
-  housingApplications,
   teacherProfiles,
   parentProfiles,
   teacherDocuments,
@@ -138,88 +137,6 @@ export const deletePlatformConfig = async (req: AuthenticatedRequest, res: Respo
     res.status(500).json({ error: 'Could not disable platform config' });
   }
 };
-
-// export const getOverview = async (req: AuthenticatedRequest, res: Response) => {
-//   try {
-//     const totalUsersCount = await db.select({ value: count() }).from(users);
-//     const totalTeachersCount = await db.select({ value: count() }).from(teacherProfiles);
-//     const totalParentsCount = await db.select({ value: count() }).from(parentProfiles);
-//     const pendingHousingCount = await db.select({ value: count() })
-//       .from(housingApplications)
-//       .where(eq(housingApplications.status, 'pending'));
-//     const totalVaultCount = await db.select({ value: count() }).from(vaultItems);
-
-//     res.json({
-//       totalUsers: totalUsersCount[0].value,
-//       totalTeachers: totalTeachersCount[0].value,
-//       totalParents: totalParentsCount[0].value,
-//       pendingRentApplications: pendingHousingCount[0].value,
-//       totalVaultItems: totalVaultCount[0].value,
-//     });
-//   } catch (err: any) {
-//     console.error('Admin overview error:', err);
-//     res.status(500).json({ error: 'Could not fetch admin overview' });
-//   }
-// };
-
-export const listRentApplications = async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const list = await db.select({
-      id: housingApplications.id,
-      teacher_name: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
-      amount: housingApplications.propertyDetails, // propertyDetails is json, might contain price
-      status: housingApplications.status,
-      application_date: housingApplications.appliedAt,
-    })
-      .from(housingApplications)
-      .leftJoin(users, eq(housingApplications.teacherId, users.id));
-
-    res.json(list);
-  } catch (err: any) {
-    console.error('Rent applications fetch error:', err);
-    res.status(500).json({ error: 'Could not fetch rent applications' });
-  }
-};
-
-export const processRentApplication = async (req: AuthenticatedRequest, res: Response) => {
-  const { id } = req.params;
-  const { status } = req.body;
-
-  if (!['approved', 'rejected', 'cancelled', 'active', 'completed'].includes(status)) {
-    return res.status(400).json({ error: 'Invalid status' });
-  }
-
-  try {
-    await db.update(housingApplications)
-      .set({ status, approvedAt: status === 'approved' ? new Date() : undefined })
-      .where(eq(housingApplications.id, id));
-
-    res.json({ id, status, message: 'Application updated successfully' });
-  } catch (err: any) {
-    console.error('Process rent application error:', err);
-    res.status(500).json({ error: 'Could not update rent application' });
-  }
-};
-
-// export const listAmbassadors = async (req: AuthenticatedRequest, res: Response) => {
-//   try {
-//     // Getting ambassadors (users with ambassador role or marked as such)
-//     const list = await db.select({
-//       id: users.id,
-//       name: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
-//       referrals: sql<number>`count(${users.id})`, // This would need a self-join or referral table
-//       earnings: users.averageMonthlyEarnings, // Placeholder
-//     })
-//     .from(users)
-//     .where(eq(users.role, 'ambassador'))
-//     .groupBy(users.id, users.firstName, users.lastName, users.averageMonthlyEarnings);
-
-//     res.json(list);
-//   } catch (err: any) {
-//     console.error('Ambassadors fetch error:', err);
-//     res.status(500).json({ error: 'Could not fetch ambassadors' });
-//   }
-// };
 
 export const listVettingQueue = async (req: AuthenticatedRequest, res: Response) => {
   try {

@@ -6,8 +6,6 @@ import {
   processVetting,
   verifyDocument,
   rejectDocument,
-  listRentApplications,
-  processRentApplication,
   getWelfareAnalytics,
   listPlatformConfigs,
   createPlatformConfig,
@@ -24,10 +22,6 @@ router.post('/vetting/:teacherId', authenticateToken, processVetting as any);
 // Document verification
 router.put('/documents/:documentId/verify', authenticateToken, verifyDocument as any);
 router.put('/documents/:documentId/reject', authenticateToken, rejectDocument as any);
-
-// Rent applications
-router.get('/rent-applications', authenticateToken, listRentApplications as any);
-router.post('/rent-applications/:id', authenticateToken, processRentApplication as any);
 
 // Welfare Analytics
 router.get('/welfare-analytics', authenticateToken, getWelfareAnalytics as any);

@@ -2,8 +2,6 @@ export * from './schema/system';
 export * from './schema/users';
 export * from './schema/teacherProfiles';
 export * from './schema/lessons';
-export * from './schema/housing';
-export * from './schema/premium';
 export * from './schema/financials';
 export * from './schema/courses';
 export * from './schema/children';

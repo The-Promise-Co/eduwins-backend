@@ -3,12 +3,9 @@ import { db } from '../database/db';
 import {
   users,
   teacherProfiles,
-  subjectVideos,
-  teachingMaterials,
   teacherDocuments,
 } from '../database/schema';
 import { eq } from 'drizzle-orm';
-import path from 'path';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -137,94 +134,6 @@ export const deleteDocument = async (req: AuthenticatedRequest, res: Response) =
   }
 };
 
-export const uploadSubjectVideo = async (req: AuthenticatedRequest, res: Response) => {
-  const teacherId = req.user.id;
-  const { subject, title, description, price } = req.body;
-
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-
-    const teacher = await db.query.users.findFirst({
-      where: eq(users.id, teacherId),
-    });
-
-    if (!teacher || !teacher.isPremium) {
-      return res.status(403).json({ error: 'Premium subscription required' });
-    }
-
-    const videoId = Math.random().toString(36).substring(2, 15);
-    const videoUrl = `/uploads/${req.file.filename}`;
-
-    const newVideo = {
-      id: videoId,
-      teacherId,
-      subject,
-      title,
-      description: description || '',
-      videoUrl,
-      price: price.toString(),
-      createdAt: new Date(),
-    };
-
-    await db.insert(subjectVideos).values(newVideo);
-
-    res.status(201).json({
-      message: 'Subject video uploaded successfully',
-      video: newVideo,
-    });
-  } catch (err: any) {
-    console.error('Subject video upload error:', err);
-    res.status(500).json({ error: 'Failed' });
-  }
-};
-
-export const uploadTeachingMaterial = async (req: AuthenticatedRequest, res: Response) => {
-  const teacherId = req.user.id;
-  const { subject, title, description, price } = req.body;
-
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-
-    const teacher = await db.query.users.findFirst({
-      where: eq(users.id, teacherId),
-    });
-
-    if (!teacher || !teacher.isPremium) {
-      return res.status(403).json({ error: 'Premium subscription required' });
-    }
-
-    const materialId = Math.random().toString(36).substring(2, 15);
-    const fileExt = path.extname(req.file.originalname);
-    const materialUrl = `/uploads/${req.file.filename}`;
-
-    const newMaterial = {
-      id: materialId,
-      teacherId,
-      subject,
-      title,
-      description: description || '',
-      materialUrl,
-      contentType: fileExt === '.pdf' ? 'pdf' : 'word',
-      price: price.toString(),
-      createdAt: new Date(),
-    };
-
-    await db.insert(teachingMaterials).values(newMaterial);
-
-    res.status(201).json({
-      message: 'Teaching material uploaded successfully',
-      material: newMaterial,
-    });
-  } catch (err: any) {
-    console.error('Material upload error:', err);
-    res.status(500).json({ error: 'Failed' });
-  }
-};
-
 export const getProfileCompletion = async (req: AuthenticatedRequest, res: Response) => {
   const teacherId = req.user.id;
 
@@ -267,7 +176,6 @@ export const getProfileCompletion = async (req: AuthenticatedRequest, res: Respo
     res.status(200).json({
       completionPercentage,
       nextStep,
-      isPremium: teacher.isPremium || false,
       completion,
     });
   } catch (err: any) {

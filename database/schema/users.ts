@@ -25,20 +25,6 @@ export const users = pgTable('users', {
   photoUrl: text('photo_url'),
   bio: text('bio'),
 
-  // Housing Flags
-  housingEligible: boolean('housing_eligible').default(false),
-  housingStatus: varchar('housing_status', { length: 50 }).default('not-started'), // 'not-started', 'rent-to-own', 'homeowner'
-  hasActiveMortgage: boolean('has_active_mortgage').default(false),
-  activeMortgageId: varchar('active_mortgage_id', { length: 255 }),
-  propertyOwned: boolean('property_owned').default(false),
-
-  // Premium Flags
-  isPremium: boolean('is_premium').default(false),
-  subscriptionActive: boolean('subscription_active').default(false),
-  subscriptionId: varchar('subscription_id', { length: 255 }),
-  subscriptionPlan: varchar('subscription_plan', { length: 50 }),
-  subscriptionEndDate: timestamp('subscription_end_date'),
-
   // 2FA Flags
   twoFactorEnabled: boolean('two_factor_enabled').default(false),
   twoFactorSecret: text('two_factor_secret'),

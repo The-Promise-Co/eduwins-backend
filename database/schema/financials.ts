@@ -23,7 +23,7 @@ export const withdrawals = pgTable('withdrawals', {
   accountName: varchar('account_name', { length: 255 }),
   narration: text('narration'),
   status: varchar('status', { length: 50 }).default('pending'), // 'pending', 'processing', 'completed', 'failed', 'cancelled'
-  paystackReference: varchar('paystack_reference', { length: 255 }),
+  paystackReference: varchar('paystack_reference', { length: 255 }).unique(),
   failureReason: text('failure_reason'),
   month: varchar('month', { length: 7 }), // YYYY-MM
   createdAt: timestamp('created_at').defaultNow(),
@@ -45,20 +45,43 @@ export const transactions = pgTable('transactions', {
   id: varchar('id', { length: 255 }).primaryKey(),
   bookingId: varchar('booking_id', { length: 255 }).references(() => bookings.id),
   teacherId: varchar('teacher_id', { length: 255 }).references(() => users.id),
+  paystackReference: varchar('paystack_reference', { length: 255 }).unique(),
   amount: decimal('amount', { precision: 20, scale: 2 }).notNull(),
   type: varchar('type', { length: 50 }).notNull(), // 'payment_in', 'withdrawal_out', 'vault_purchase', etc.
   metadata: jsonb('metadata'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-export const ambassadors = pgTable('ambassadors', {
-  userId: varchar('user_id', { length: 255 }).primaryKey().references(() => users.id),
-  mentorId: varchar('mentor_id', { length: 255 }),
-  level: integer('level').default(1),
-  status: varchar('status', { length: 50 }).default('active'),
-  directReferrals: integer('direct_referrals').default(0),
-  indirectReferrals: integer('indirect_referrals').default(0),
-  earnedCredits: decimal('earned_credits', { precision: 20, scale: 2 }).default('0'),
+export const digitalVault = pgTable('digital_vault', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  teacherId: varchar('teacher_id', { length: 255 }).references(() => users.id),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description'),
+  subject: varchar('subject', { length: 255 }),
+  contentType: varchar('content_type', { length: 50 }),
+  price: decimal('price', { precision: 20, scale: 2 }).notNull(),
+  fileUrl: text('file_url'),
+  previewUrl: text('preview_url'),
+  isActive: boolean('is_active').default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const vaultPurchases = pgTable('vault_purchases', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  itemId: varchar('item_id', { length: 255 }).references(() => digitalVault.id),
+  buyerId: varchar('buyer_id', { length: 255 }).references(() => users.id),
+  pricePaid: decimal('price_paid', { precision: 20, scale: 2 }),
+  purchaseDate: timestamp('purchase_date').defaultNow(),
+});
+
+export const welfareFunds = pgTable('welfare_funds', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  teacherId: varchar('teacher_id', { length: 255 }).references(() => users.id),
+  month: varchar('month', { length: 7 }),
+  amount: decimal('amount', { precision: 20, scale: 2 }),
+  lessonCount: integer('lesson_count').default(0),
+  status: varchar('status', { length: 50 }).default('locked'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -109,6 +132,5 @@ export const notifications = pgTable('notifications', {
 
 export type Withdrawal = InferSelectModel<typeof withdrawals>;
 export type Transaction = InferSelectModel<typeof transactions>;
-export type Ambassador = InferSelectModel<typeof ambassadors>;
 export type Notification = InferSelectModel<typeof notifications>;
 export type Referral = InferSelectModel<typeof referrals>;

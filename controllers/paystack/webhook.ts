@@ -4,6 +4,7 @@ import { db } from '../../database/db';
 import { transactions, bookings } from '../../database/schema';
 import { eq } from 'drizzle-orm';
 import { enrollUserInCourse } from '../courses/enrollment';
+import { settleCoursePayment } from './verifyPayment';
 
 export const paystackWebhook = async (req: Request, res: Response) => {
   const hash = req.headers['x-paystack-signature'] as string;
@@ -34,7 +35,16 @@ export const paystackWebhook = async (req: Request, res: Response) => {
       }
 
       if (metadata.course_id && metadata.user_id) {
-        await enrollUserInCourse(metadata.course_id, metadata.user_id);
+        const enrollmentResult = await enrollUserInCourse(metadata.course_id, metadata.user_id);
+        const amount = event.data.amount / 100;
+        await settleCoursePayment({
+          amount,
+          metadata,
+          paymentData: event.data,
+          enrollmentResult,
+        });
+
+        return res.json({ received: true });
       }
 
       const transactionId = Math.random().toString(36).substring(2, 15);
@@ -42,6 +52,7 @@ export const paystackWebhook = async (req: Request, res: Response) => {
         id: transactionId,
         bookingId: metadata.booking_id || null,
         teacherId: metadata.teacher_id || null,
+        paystackReference: event.data.reference || null,
         amount: (event.data.amount / 100).toString(),
         type: 'payment_in',
         metadata: event.data,

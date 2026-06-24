@@ -11,6 +11,48 @@ interface AuthenticatedRequest extends Request {
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
+type InitializePaystackInput = {
+  email: string;
+  amount: number;
+  currency?: string;
+  reference?: string;
+  callback_url?: string;
+  metadata?: Record<string, any>;
+};
+
+export const initializePaystackTransaction = async ({
+  email,
+  amount,
+  currency,
+  reference,
+  callback_url,
+  metadata,
+}: InitializePaystackInput) => {
+  if (!PAYSTACK_SECRET) {
+    throw new Error('Paystack not configured');
+  }
+
+  const response = await axios.post('https://api.paystack.co/transaction/initialize', {
+    email,
+    amount: Math.round(amount * 100),
+    currency: currency || 'NGN',
+    reference,
+    metadata: metadata && Object.keys(metadata).length > 0 ? metadata : undefined,
+    callback_url: callback_url,
+  }, {
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  const data = response.data.data;
+  return {
+    ...data,
+    authorizationUrl: data.authorization_url,
+  };
+};
+
 export const initializePayment = async (req: AuthenticatedRequest, res: Response) => {
   const { email, amount, currency, reference, callback_url, course_id } = req.body;
   const userId = req.user?.id;
@@ -51,27 +93,18 @@ export const initializePayment = async (req: AuthenticatedRequest, res: Response
   }
 
   try {
-    const response = await axios.post('https://api.paystack.co/transaction/initialize', {
+    const data = await initializePaystackTransaction({
       email,
-      amount: Math.round(amount * 100),
-      currency: currency || 'NGN',
+      amount: Number(amount),
+      currency,
       reference,
-      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       callback_url: callback_url || (course_id
         ? `${process.env.FRONTEND_URL}/courses/payment/confirm`
         : `${process.env.FRONTEND_URL}/payment-success`),
-    }, {
-      headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET}`,
-        'Content-Type': 'application/json',
-      },
+      metadata,
     });
-    log('Paystack initialize response:', response.data);
-    const data = response.data.data;
-    res.json({
-      ...data,
-      authorizationUrl: data.authorization_url,
-    });
+    log('Paystack initialize response:', data);
+    res.json(data);
   } catch (err: any) {
     console.error('Paystack initialize error:', err.response?.data || err.message);
     res.status(500).json({ error: 'Payment initialization failed' });

@@ -5,6 +5,7 @@ import {
   listCourses,
   getCoursesByTeacher,
   getCourseById,
+  getCourseForLearning,
   updateCourse,
   addModule,
   addLesson,
@@ -12,6 +13,7 @@ import {
   deleteLesson,
   enrollCourse,
   getEnrolledCourses,
+  updateCourseProgress,
 } from '../controllers/courses';
 
 const router = express.Router();
@@ -30,8 +32,10 @@ router.get('/', listCourses as any);
 router.get('/teacher/:teacherId', optionalAuth, getCoursesByTeacher as any);
 router.get('/enrolled', authenticateToken, getEnrolledCourses as any);
 router.post('/', authenticateToken, createCourse as any);
+router.get('/:id/learn', authenticateToken, getCourseForLearning as any);
 router.get('/:id', getCourseById as any);
 router.post('/:id/enroll', authenticateToken, enrollCourse as any);
+router.put('/:id/progress', authenticateToken, updateCourseProgress as any);
 router.put('/:id', authenticateToken, updateCourse as any);
 
 // Modules and Lessons
