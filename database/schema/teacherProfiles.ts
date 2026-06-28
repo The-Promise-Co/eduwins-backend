@@ -8,7 +8,7 @@ import {
     boolean,
     text,
     timestamp,
-    time,
+    jsonb,
 } from 'drizzle-orm/pg-core';
 import { users } from './users';
 
@@ -53,8 +53,6 @@ export const teacherProfiles = pgTable('teacher_profiles', {
 
     isApproved: boolean('is_approved').default(false).notNull(),
     isVerified: boolean('is_verified').default(false).notNull(),
-    emailVerified: boolean('email_verified').default(false).notNull(),
-    phoneVerified: boolean('phone_verified').default(false).notNull(),
     idVerified: boolean('id_verified').default(false).notNull(),
     searchRank: varchar('search_rank', { length: 50 }).default('normal').notNull(),
     ratingAvg: decimal('rating_avg', { precision: 3, scale: 2 }).default('0').notNull(),
@@ -124,14 +122,10 @@ export const teacherProfiles = pgTable('teacher_profiles', {
 
     // ── Availability ─────────────────────────────────────────────────────────
 
-    availableDays: dayOfWeekEnum('available_days')
-        .array()
-        .default(sql`ARRAY[]::day_of_week[]`)
-        .notNull(),
+    availability: boolean('availability').default(false).notNull(),
 
-    // Wall-clock window, same every active day — e.g. 09:00 / 18:00
-    availableFrom: time('available_from'),
-    availableTo: time('available_to'),
+    availabilityConfig: jsonb('availability_config')
+        .$type<Record<string, { from: string; to: string }[]> | null>(),
 
     // IANA timezone string — e.g. 'Africa/Lagos', 'Europe/London'
     timezone: varchar('timezone', { length: 100 }),

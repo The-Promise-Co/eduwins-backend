@@ -28,6 +28,74 @@ const PLAN_PRICES: Record<string, number> = {
   annual: 40000,
 };
 
+const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const normalizeDayKey = (day: string) => {
+  const normalized = day.trim().toLowerCase();
+  const aliases: Record<string, string> = {
+    mon: 'monday',
+    tue: 'tuesday',
+    tues: 'tuesday',
+    wed: 'wednesday',
+    thu: 'thursday',
+    thur: 'thursday',
+    thurs: 'thursday',
+    fri: 'friday',
+    sat: 'saturday',
+    sun: 'sunday',
+  };
+  return aliases[normalized] || normalized;
+};
+
+const toMinutes = (value: string) => {
+  const [hour, minute] = value.split(':').map(Number);
+  return hour * 60 + minute;
+};
+
+const normalizeAvailabilityConfig = (config: unknown) => {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
+
+  const normalized = DAYS.reduce<Record<string, { from: string; to: string }[]>>((acc, day) => {
+    acc[day] = [];
+    return acc;
+  }, {});
+
+  for (const [day, ranges] of Object.entries(config as Record<string, unknown>)) {
+    const normalizedDay = normalizeDayKey(day);
+    if (!DAYS.includes(normalizedDay) || !Array.isArray(ranges)) continue;
+
+    normalized[normalizedDay] = ranges
+      .filter((range): range is { from: string; to: string } => {
+        return !!range
+          && typeof range === 'object'
+          && typeof (range as any).from === 'string'
+          && typeof (range as any).to === 'string'
+          && TIME_RE.test((range as any).from)
+          && TIME_RE.test((range as any).to)
+          && toMinutes((range as any).to) > toMinutes((range as any).from);
+      })
+      .map((range) => ({ from: range.from, to: range.to }))
+      .sort((a, b) => toMinutes(a.from) - toMinutes(b.from))
+      .reduce<{ from: string; to: string }[]>((acc, range) => {
+        const previous = acc[acc.length - 1];
+        if (!previous || toMinutes(range.from) >= toMinutes(previous.to)) {
+          acc.push(range);
+        }
+        return acc;
+      }, []);
+  }
+
+  return Object.values(normalized).some((ranges) => ranges.length > 0) ? normalized : null;
+};
+
+const hasAvailabilityConfig = (config: unknown) => {
+  return !!config
+    && typeof config === 'object'
+    && !Array.isArray(config)
+    && Object.values(config as Record<string, unknown>).some((ranges) => Array.isArray(ranges) && ranges.length > 0);
+};
+
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const buildAuthPayload = async (user: any) => {
@@ -218,6 +286,7 @@ export const googleRegister = async (req: Request, res: Response) => {
       lastName,
       role,
       isVerified: true,
+      emailVerified: true,
       trustScore: 0,
       referralCode: generatedReferralCode,
       referralCount: 0,
@@ -229,7 +298,6 @@ export const googleRegister = async (req: Request, res: Response) => {
     if (role === 'teacher') {
       await db.insert(teacherProfiles).values({
         userId,
-        emailVerified: true,
         baseHourlyRate: '0',
         totalEarnings: '0',
         ratingAvg: '0',
@@ -279,13 +347,12 @@ export const googleLogin = async (req: Request, res: Response) => {
 
     if (!user.isVerified) {
       await db.update(users)
-        .set({ isVerified: true, photoUrl: user.photoUrl || googleUser.picture || null })
+        .set({ isVerified: true, emailVerified: true, photoUrl: user.photoUrl || googleUser.picture || null })
         .where(eq(users.id, user.id));
 
       if (user.role === 'teacher') {
         await db.insert(teacherProfiles).values({
           userId: user.id,
-          emailVerified: true,
           baseHourlyRate: '0',
           totalEarnings: '0',
           ratingAvg: '0',
@@ -360,7 +427,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
 
     // Mark as verified
     await db.update(users)
-      .set({ isVerified: true })
+      .set({ isVerified: true, emailVerified: true })
       .where(eq(users.id, user.id));
 
     // Mark token as used
@@ -372,7 +439,6 @@ export const verifyEmail = async (req: Request, res: Response) => {
     if (user.role === 'teacher') {
       await db.insert(teacherProfiles).values({
         userId: user.id,
-        emailVerified: true,
         baseHourlyRate: '0',
         totalEarnings: '0',
         ratingAvg: '0',
@@ -582,6 +648,27 @@ export const getProfile = async (req: any, res: Response) => {
     }
 
     const teacherProfile = await db.query.teacherProfiles.findFirst({ where: eq(teacherProfiles.userId, userId) });
+    const teacherData = teacherProfile ? {
+      pronouns: teacherProfile.pronouns || '',
+      highestDegree: teacherProfile.highestDegree || '',
+      institution: teacherProfile.institution || '',
+      yearsOfExperience: teacherProfile.yearsOfExperience || 0,
+      languages: teacherProfile.languages || [],
+      subjects: teacherProfile.subjects || [],
+      educationLevels: teacherProfile.educationLevels || [],
+      sessionFormats: teacherProfile.sessionFormats || [],
+      deliveryModes: teacherProfile.deliveryModes || [],
+      baseHourlyRate: teacherProfile.baseHourlyRate,
+      hourlyRate: teacherProfile.baseHourlyRate,
+      availability: teacherProfile.availability,
+      availabilityConfig: teacherProfile.availabilityConfig,
+      certifications: teacherProfile.certifications || [],
+      qualification: teacherProfile.certifications?.[0] || '',
+      idVerified: teacherProfile.idVerified,
+      photo: teacherProfile.photoUrl,
+      videoVerified: teacherProfile.videoVerified,
+      isVerified: teacherProfile.isVerified,
+    } : null;
 
     res.json({
       id: user.id,
@@ -596,23 +683,8 @@ export const getProfile = async (req: any, res: Response) => {
       referralCount: user.referralCount || 0,
       referredBy: user.referredBy,
       twoFactorEnabled: user.twoFactorEnabled || false,
-      teacherProfile: teacherProfile ? {
-        pronouns: teacherProfile.pronouns || '',
-        highestDegree: teacherProfile.highestDegree || '',
-        institution: teacherProfile.institution || '',
-        yearsOfExperience: teacherProfile.yearsOfExperience || 0,
-        languages: teacherProfile.languages || [],
-        subjects: teacherProfile.subjects || [],
-        educationLevels: teacherProfile.educationLevels || [],
-        sessionFormats: teacherProfile.sessionFormats || [],
-        deliveryModes: teacherProfile.deliveryModes || [],
-        emailVerified: teacherProfile.emailVerified,
-        phoneVerified: teacherProfile.phoneVerified,
-        idVerified: teacherProfile.idVerified,
-        photo: teacherProfile.photoUrl,
-        videoVerified: teacherProfile.videoVerified,
-        isVerified: teacherProfile.isVerified,
-      } : null
+      ...(teacherData || {}),
+      teacherProfile: teacherData,
     });
   } catch (err: any) {
     logger.error({ err }, 'Could not fetch profile');
@@ -897,27 +969,34 @@ export const updateProfile = async (req: any, res: Response) => {
       yearsOfExperience,
       languages,
       subjects,
+      hourlyRate,
+      baseHourlyRate,
+      availability,
+      availabilityConfig,
+      certifications,
+      qualification,
       educationLevels,
       sessionFormats,
       deliveryModes
     } = req.body;
 
-    if (!firstName || !lastName) {
-      return res.status(400).json({ error: 'First name and last name are required' });
+    if ((firstName !== undefined && !firstName) || (lastName !== undefined && !lastName)) {
+      return res.status(400).json({ error: 'First name and last name cannot be empty' });
     }
 
-    const updateData: any = {
-      firstName,
-      lastName,
-    };
+    const updateData: any = {};
 
+    if (firstName !== undefined) updateData.firstName = firstName;
+    if (lastName !== undefined) updateData.lastName = lastName;
     if (bio !== undefined) updateData.bio = bio;
     if (photo !== undefined) updateData.photoUrl = photo;
     if (photoUrl !== undefined) updateData.photoUrl = photoUrl;
 
-    await db.update(users)
-      .set(updateData)
-      .where(eq(users.id, userId));
+    if (Object.keys(updateData).length > 0) {
+      await db.update(users)
+        .set(updateData)
+        .where(eq(users.id, userId));
+    }
 
     // Update teacher-specific profiles table if teacher role
     if (req.user.role === 'teacher') {
@@ -931,6 +1010,16 @@ export const updateProfile = async (req: any, res: Response) => {
       if (yearsOfExperience !== undefined) teacherUpdateData.yearsOfExperience = parseInt(yearsOfExperience) || 0;
       if (languages !== undefined) teacherUpdateData.languages = languages;
       if (subjects !== undefined) teacherUpdateData.subjects = subjects;
+      if (hourlyRate !== undefined || baseHourlyRate !== undefined) {
+        teacherUpdateData.baseHourlyRate = String(hourlyRate ?? baseHourlyRate ?? 0);
+      }
+      if (availability !== undefined || availabilityConfig !== undefined) {
+        const normalizedConfig = normalizeAvailabilityConfig(availabilityConfig);
+        teacherUpdateData.availabilityConfig = normalizedConfig;
+        teacherUpdateData.availability = Boolean(availability) && hasAvailabilityConfig(normalizedConfig);
+      }
+      if (certifications !== undefined) teacherUpdateData.certifications = certifications;
+      if (qualification !== undefined) teacherUpdateData.certifications = qualification ? [qualification] : [];
       if (educationLevels !== undefined) teacherUpdateData.educationLevels = educationLevels;
       if (sessionFormats !== undefined) teacherUpdateData.sessionFormats = sessionFormats;
       if (deliveryModes !== undefined) teacherUpdateData.deliveryModes = deliveryModes;
@@ -947,7 +1036,7 @@ export const updateProfile = async (req: any, res: Response) => {
       data: {
         firstName,
         lastName,
-        fullName: `${firstName} ${lastName}`,
+        fullName: firstName && lastName ? `${firstName} ${lastName}` : undefined,
         bio: bio || '',
         photoUrl: photoUrl || '',
       },

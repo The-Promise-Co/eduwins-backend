@@ -146,6 +146,7 @@ export const registerChild = async (req: AuthenticatedRequest, res: Response) =>
       lastName: lastName.trim(),
       role: 'student',
       isVerified: true, // parent-registered children are pre-verified
+      emailVerified: true,
       trustScore: 0,
       referralCount: 0,
       referralRewarded: false,

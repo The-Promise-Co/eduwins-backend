@@ -152,26 +152,48 @@ export const getProfileCompletion = async (req: AuthenticatedRequest, res: Respo
       where: eq(teacherDocuments.teacherId, teacherId),
     });
 
-    const hasPhoto = !!profile?.photoUrl;
+    const hasPhoto = !!(profile?.photoUrl || teacher.photoUrl);
+    const hasBio = !!(profile?.bio || teacher.bio);
+    const hasSubjects = (profile?.subjects || []).length > 0;
     const hasVideo = !!profile?.videoVerified;
+    const hasSchedule = Boolean(profile?.availability) && !!profile?.availabilityConfig && Object.values(profile.availabilityConfig as Record<string, any>).some((ranges) => Array.isArray(ranges) && ranges.some((range) => !!(range?.from && range?.to)));
+    const hasHourlyPay = Number(profile?.baseHourlyRate || 0) > 0;
     const docsUploaded = docs.length > 0;
     const docsVerified = docs.length > 0 && docs.every((d) => d.verified);
+    const hasCertification = docsUploaded || (profile?.certifications || []).length > 0;
+    const hasEducation = !!(profile?.highestDegree || profile?.institution) || (profile?.educationLevels || []).length > 0;
 
     const completion = {
       photo: hasPhoto,
+      profile_picture: hasPhoto,
+      bio: hasBio,
+      subjects: hasSubjects,
+      video_intro: hasVideo,
       video_verified: hasVideo,
+      schedule: hasSchedule,
+      availability: hasSchedule,
+      hourly_pay: hasHourlyPay,
+      hourly_rate: hasHourlyPay,
+      certification: hasCertification,
+      education: hasEducation,
       documents_uploaded: docsUploaded,
       documents_verified: docsVerified,
     };
 
-    const completedCount = [hasPhoto, hasVideo, docsUploaded].filter(Boolean).length;
-    const completionPercentage = Math.round((completedCount / 3) * 100);
+    const steps = [
+      { done: hasPhoto, next: 'Upload a profile photo' },
+      { done: hasBio, next: 'Add your bio' },
+      { done: hasSubjects, next: 'Select your subjects' },
+      { done: hasVideo, next: 'Upload an intro video' },
+      { done: hasSchedule, next: 'Set your teaching availability' },
+      { done: hasHourlyPay, next: 'Set your hourly pay' },
+      { done: hasCertification, next: 'Add certification' },
+      { done: hasEducation, next: 'Add education' },
+    ];
+    const completedCount = steps.filter((step) => step.done).length;
+    const completionPercentage = Math.round((completedCount / steps.length) * 100);
 
-    let nextStep = 'Upload a profile photo';
-    if (!hasVideo) nextStep = 'Upload an intro video';
-    else if (!docsUploaded) nextStep = 'Upload credential documents';
-    else if (!docsVerified) nextStep = 'Wait for document verification';
-    else nextStep = 'All steps completed!';
+    const nextStep = steps.find((step) => !step.done)?.next || (docsUploaded && !docsVerified ? 'Wait for document verification' : 'Profile complete');
 
     res.status(200).json({
       completionPercentage,

@@ -111,15 +111,6 @@ export const referrals = pgTable('referrals', {
   rewardedAt: timestamp('rewarded_at'),              // when reward was actually applied
 });
 
-export const progressReports = pgTable('progress_reports', {
-  id: varchar('id', { length: 255 }).primaryKey(),
-  studentId: varchar('student_id', { length: 255 }).references(() => users.id),
-  teacherId: varchar('teacher_id', { length: 255 }).references(() => users.id),
-  bookingId: varchar('booking_id', { length: 255 }).references(() => bookings.id),
-  reportData: jsonb('report_data'),
-  createdAt: timestamp('created_at').defaultNow(),
-});
-
 export const notifications = pgTable('notifications', {
   id: varchar('id', { length: 255 }).primaryKey(),
   userId: varchar('user_id', { length: 255 }).references(() => users.id),

@@ -3,6 +3,62 @@ import { db } from '../database/db';
 import { users, teacherProfiles } from '../database/schema';
 import { eq, sql, ilike, or, and } from 'drizzle-orm';
 
+export const getTeacherById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const [teacher] = await db.select({
+      id: teacherProfiles.userId,
+      userId: teacherProfiles.userId,
+      full_name: sql<string>`CONCAT(${users.firstName}, ' ', ${users.lastName})`,
+      fullName: sql<string>`CONCAT(${users.firstName}, ' ', ${users.lastName})`,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      email: users.email,
+      photo: teacherProfiles.photoUrl,
+      photoUrl: teacherProfiles.photoUrl,
+      subjects: teacherProfiles.subjects,
+      languages: teacherProfiles.languages,
+      baseHourlyRate: teacherProfiles.baseHourlyRate,
+      hourlyRate: teacherProfiles.baseHourlyRate,
+      ratingAvg: teacherProfiles.ratingAvg,
+      students: teacherProfiles.totalSessions,
+      totalSessions: teacherProfiles.totalSessions,
+      bio: teacherProfiles.bio,
+      qualification: teacherProfiles.highestDegree,
+      highestDegree: teacherProfiles.highestDegree,
+      institution: teacherProfiles.institution,
+      yearsOfExperience: teacherProfiles.yearsOfExperience,
+      certifications: teacherProfiles.certifications,
+      intro_video: teacherProfiles.videoVerified,
+      isVerified: teacherProfiles.isVerified,
+      educationLevels: teacherProfiles.educationLevels,
+      sessionFormats: teacherProfiles.sessionFormats,
+      sessionDurations: teacherProfiles.sessionDurations,
+      deliveryModes: teacherProfiles.deliveryModes,
+      availability: teacherProfiles.availability,
+      availabilityConfig: teacherProfiles.availabilityConfig,
+      timezone: teacherProfiles.timezone,
+      location: sql<string>`''`,
+      createdAt: teacherProfiles.createdAt,
+      updatedAt: teacherProfiles.updatedAt,
+    })
+      .from(teacherProfiles)
+      .innerJoin(users, eq(teacherProfiles.userId, users.id))
+      .where(eq(teacherProfiles.userId, id))
+      .limit(1);
+
+    if (!teacher) {
+      return res.status(404).json({ error: 'Teacher not found' });
+    }
+
+    res.status(200).json(teacher);
+  } catch (err: any) {
+    console.error('Get teacher error:', err);
+    res.status(500).json({ error: 'Failed to fetch teacher' });
+  }
+};
+
 export const searchTeachers = async (req: Request, res: Response) => {
   try {
     const { subject, lga, maxRate } = req.query;
@@ -11,8 +67,9 @@ export const searchTeachers = async (req: Request, res: Response) => {
     const offset = (page - 1) * limit;
 
     const conditions = [
-      eq(teacherProfiles.emailVerified, true),
-      sql`${teacherProfiles.photoUrl} IS NOT NULL`,
+      eq(users.emailVerified, true),
+      eq(users.role, 'teacher'),
+      // sql`${teacherProfiles.photoUrl} IS NOT NULL`,
     ];
 
     if (subject && typeof subject === 'string') {
@@ -37,7 +94,8 @@ export const searchTeachers = async (req: Request, res: Response) => {
         photo: teacherProfiles.photoUrl,
         subjects: teacherProfiles.subjects,
         baseHourlyRate: teacherProfiles.baseHourlyRate,
-        rating: teacherProfiles.ratingAvg,
+        hourlyRate: teacherProfiles.baseHourlyRate,
+        ratingAvg: teacherProfiles.ratingAvg,
         students: teacherProfiles.totalSessions,
         bio: teacherProfiles.bio,
         location: sql<string>`''`,

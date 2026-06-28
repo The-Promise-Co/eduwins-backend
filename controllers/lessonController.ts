@@ -131,7 +131,7 @@ export const parentConfirmLesson = async (req: AuthenticatedRequest, res: Respon
     console.error('Error confirming lesson:', err);
     res.status(500).json({ error: 'Failed to confirm lesson' });
   }
-};
+}; 
 
 export const teacherCompleteLesson = async (req: AuthenticatedRequest, res: Response) => {
   const teacherId = req.user.id;
