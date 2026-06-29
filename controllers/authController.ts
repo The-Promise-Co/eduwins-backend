@@ -1016,6 +1016,8 @@ export const updateProfile = async (req: any, res: Response) => {
       baseHourlyRate,
       availability,
       availabilityConfig,
+      videoVerified,
+      intro_video,
       certifications,
       education,
       qualification,
@@ -1062,6 +1064,7 @@ export const updateProfile = async (req: any, res: Response) => {
         teacherUpdateData.availabilityConfig = normalizedConfig;
         teacherUpdateData.availability = Boolean(availability) && hasAvailabilityConfig(normalizedConfig);
       }
+      if (videoVerified !== undefined || intro_video !== undefined) teacherUpdateData.videoVerified = videoVerified ?? intro_video;
       if (educationLevels !== undefined) teacherUpdateData.educationLevels = educationLevels;
       if (sessionFormats !== undefined) teacherUpdateData.sessionFormats = sessionFormats;
       if (deliveryModes !== undefined) teacherUpdateData.deliveryModes = deliveryModes;
