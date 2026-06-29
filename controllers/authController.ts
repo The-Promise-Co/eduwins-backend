@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
 import { db } from '../database/db';
-import { users, teacherProfiles, parentProfiles, verificationTokens, referrals } from '../database/schema';
+import { users, teacherProfiles, parentProfiles, verificationTokens, referrals, teacherCertifications, teacherEducations } from '../database/schema';
 import { eq, or, and } from 'drizzle-orm';
 import { emailService } from '../utils/emailSender';
 import { generateOTP } from '../utils/otpGenerator';
@@ -94,6 +94,43 @@ const hasAvailabilityConfig = (config: unknown) => {
     && typeof config === 'object'
     && !Array.isArray(config)
     && Object.values(config as Record<string, unknown>).some((ranges) => Array.isArray(ranges) && ranges.length > 0);
+};
+
+const normalizeCertifications = (items: unknown) => {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => typeof item === 'string' ? { certificationName: item, issuingOrganization: '' } : item)
+    .filter((item) => item && typeof item === 'object' && typeof (item as any).certificationName === 'string' && (item as any).certificationName.trim())
+    .map((item: any) => ({
+      id: item.id || Math.random().toString(36).slice(2),
+      certificationName: item.certificationName.trim(),
+      issuingOrganization: typeof item.issuingOrganization === 'string' ? item.issuingOrganization.trim() : '',
+      credentialId: item.credentialId || null,
+      credentialUrl: item.credentialUrl || null,
+      imageUrl: item.imageUrl || null,
+      issueDate: item.issueDate || null,
+      expiryDate: item.doesNotExpire ? null : item.expiryDate || null,
+      doesNotExpire: Boolean(item.doesNotExpire),
+      description: item.description || null,
+    }));
+};
+
+const normalizeEducation = (items: unknown) => {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => typeof item === 'string' ? { institutionName: item } : item)
+    .filter((item) => item && typeof item === 'object' && typeof (item as any).institutionName === 'string' && (item as any).institutionName.trim())
+    .map((item: any) => ({
+      id: item.id || Math.random().toString(36).slice(2),
+      institutionName: item.institutionName.trim(),
+      degree: item.degree || null,
+      fieldOfStudy: item.fieldOfStudy || null,
+      grade: item.grade || null,
+      startDate: item.startDate || null,
+      endDate: item.isCurrent ? null : item.endDate || null,
+      isCurrent: Boolean(item.isCurrent),
+      description: item.description || null,
+    }));
 };
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -648,6 +685,10 @@ export const getProfile = async (req: any, res: Response) => {
     }
 
     const teacherProfile = await db.query.teacherProfiles.findFirst({ where: eq(teacherProfiles.userId, userId) });
+    const [certificationRows, educationRows] = await Promise.all([
+      db.query.teacherCertifications.findMany({ where: eq(teacherCertifications.userId, userId) }),
+      db.query.teacherEducations.findMany({ where: eq(teacherEducations.userId, userId) }),
+    ]);
     const teacherData = teacherProfile ? {
       pronouns: teacherProfile.pronouns || '',
       highestDegree: teacherProfile.highestDegree || '',
@@ -662,8 +703,9 @@ export const getProfile = async (req: any, res: Response) => {
       hourlyRate: teacherProfile.baseHourlyRate,
       availability: teacherProfile.availability,
       availabilityConfig: teacherProfile.availabilityConfig,
-      certifications: teacherProfile.certifications || [],
-      qualification: teacherProfile.certifications?.[0] || '',
+      certifications: normalizeCertifications(certificationRows),
+      education: normalizeEducation(educationRows),
+      qualification: normalizeCertifications(certificationRows)[0]?.certificationName || '',
       idVerified: teacherProfile.idVerified,
       photo: teacherProfile.photoUrl,
       videoVerified: teacherProfile.videoVerified,
@@ -679,6 +721,7 @@ export const getProfile = async (req: any, res: Response) => {
       role: user.role,
       bio: user.bio,
       photoUrl: user.photoUrl,
+      photo: teacherData?.photo || user.photoUrl,
       referralCode: user.referralCode,
       referralCount: user.referralCount || 0,
       referredBy: user.referredBy,
@@ -974,6 +1017,7 @@ export const updateProfile = async (req: any, res: Response) => {
       availability,
       availabilityConfig,
       certifications,
+      education,
       qualification,
       educationLevels,
       sessionFormats,
@@ -1018,8 +1062,6 @@ export const updateProfile = async (req: any, res: Response) => {
         teacherUpdateData.availabilityConfig = normalizedConfig;
         teacherUpdateData.availability = Boolean(availability) && hasAvailabilityConfig(normalizedConfig);
       }
-      if (certifications !== undefined) teacherUpdateData.certifications = certifications;
-      if (qualification !== undefined) teacherUpdateData.certifications = qualification ? [qualification] : [];
       if (educationLevels !== undefined) teacherUpdateData.educationLevels = educationLevels;
       if (sessionFormats !== undefined) teacherUpdateData.sessionFormats = sessionFormats;
       if (deliveryModes !== undefined) teacherUpdateData.deliveryModes = deliveryModes;
@@ -1028,6 +1070,47 @@ export const updateProfile = async (req: any, res: Response) => {
         await db.update(teacherProfiles)
           .set(teacherUpdateData)
           .where(eq(teacherProfiles.userId, userId));
+      }
+
+      if (certifications !== undefined || qualification !== undefined) {
+        const records = certifications !== undefined
+          ? normalizeCertifications(certifications)
+          : qualification ? normalizeCertifications([{ certificationName: qualification, issuingOrganization: '' }]) : [];
+        await db.delete(teacherCertifications).where(eq(teacherCertifications.userId, userId));
+        if (records.length > 0) {
+          await db.insert(teacherCertifications).values(records.map((record) => ({
+            userId,
+            certificationName: record.certificationName,
+            issuingOrganization: record.issuingOrganization,
+            credentialId: record.credentialId || null,
+            credentialUrl: record.credentialUrl || null,
+            imageUrl: record.imageUrl || null,
+            issueDate: record.issueDate || null,
+            expiryDate: record.doesNotExpire ? null : record.expiryDate || null,
+            doesNotExpire: Boolean(record.doesNotExpire),
+            description: record.description || null,
+            updatedAt: new Date(),
+          })));
+        }
+      }
+
+      if (education !== undefined) {
+        const records = normalizeEducation(education);
+        await db.delete(teacherEducations).where(eq(teacherEducations.userId, userId));
+        if (records.length > 0) {
+          await db.insert(teacherEducations).values(records.map((record) => ({
+            userId,
+            institutionName: record.institutionName,
+            degree: record.degree || null,
+            fieldOfStudy: record.fieldOfStudy || null,
+            grade: record.grade || null,
+            startDate: record.startDate || null,
+            endDate: record.isCurrent ? null : record.endDate || null,
+            isCurrent: Boolean(record.isCurrent),
+            description: record.description || null,
+            updatedAt: new Date(),
+          })));
+        }
       }
     }
 

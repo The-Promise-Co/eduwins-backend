@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { db } from '../database/db';
-import { users, teacherProfiles } from '../database/schema';
+import { users, teacherProfiles, teacherCertifications, teacherEducations } from '../database/schema';
 import { eq, sql, ilike, or, and } from 'drizzle-orm';
 
 export const getTeacherById = async (req: Request, res: Response) => {
@@ -29,7 +29,6 @@ export const getTeacherById = async (req: Request, res: Response) => {
       highestDegree: teacherProfiles.highestDegree,
       institution: teacherProfiles.institution,
       yearsOfExperience: teacherProfiles.yearsOfExperience,
-      certifications: teacherProfiles.certifications,
       intro_video: teacherProfiles.videoVerified,
       isVerified: teacherProfiles.isVerified,
       educationLevels: teacherProfiles.educationLevels,
@@ -52,7 +51,12 @@ export const getTeacherById = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Teacher not found' });
     }
 
-    res.status(200).json(teacher);
+    const [certifications, education] = await Promise.all([
+      db.query.teacherCertifications.findMany({ where: eq(teacherCertifications.userId, teacher.id) }),
+      db.query.teacherEducations.findMany({ where: eq(teacherEducations.userId, teacher.id) }),
+    ]);
+
+    res.status(200).json({ ...teacher, certifications, education });
   } catch (err: any) {
     console.error('Get teacher error:', err);
     res.status(500).json({ error: 'Failed to fetch teacher' });

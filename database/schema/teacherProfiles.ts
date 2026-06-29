@@ -82,12 +82,6 @@ export const teacherProfiles = pgTable('teacher_profiles', {
     institution: text('institution'),
     yearsOfExperience: integer('years_of_experience'),
 
-    // e.g. ['B.Sc Mathematics', 'PGCE']
-    certifications: text('certifications')
-        .array()
-        .default(sql`ARRAY[]::text[]`)
-        .notNull(),
-
     // ── Subjects ─────────────────────────────────────────────────────────────
 
     // Free-text subject names; keeps things flexible across curricula

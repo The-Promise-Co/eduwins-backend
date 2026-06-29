@@ -4,6 +4,8 @@ import {
   users,
   teacherProfiles,
   teacherDocuments,
+  teacherCertifications,
+  teacherEducations,
 } from '../database/schema';
 import { eq } from 'drizzle-orm';
 
@@ -152,6 +154,11 @@ export const getProfileCompletion = async (req: AuthenticatedRequest, res: Respo
       where: eq(teacherDocuments.teacherId, teacherId),
     });
 
+    const [certifications, education] = await Promise.all([
+      db.query.teacherCertifications.findMany({ where: eq(teacherCertifications.userId, teacherId) }),
+      db.query.teacherEducations.findMany({ where: eq(teacherEducations.userId, teacherId) }),
+    ]);
+
     const hasPhoto = !!(profile?.photoUrl || teacher.photoUrl);
     const hasBio = !!(profile?.bio || teacher.bio);
     const hasSubjects = (profile?.subjects || []).length > 0;
@@ -160,8 +167,8 @@ export const getProfileCompletion = async (req: AuthenticatedRequest, res: Respo
     const hasHourlyPay = Number(profile?.baseHourlyRate || 0) > 0;
     const docsUploaded = docs.length > 0;
     const docsVerified = docs.length > 0 && docs.every((d) => d.verified);
-    const hasCertification = docsUploaded || (profile?.certifications || []).length > 0;
-    const hasEducation = !!(profile?.highestDegree || profile?.institution) || (profile?.educationLevels || []).length > 0;
+    const hasCertification = docsUploaded || certifications.length > 0;
+    const hasEducation = education.length > 0 || !!(profile?.highestDegree || profile?.institution) || (profile?.educationLevels || []).length > 0;
 
     const completion = {
       photo: hasPhoto,

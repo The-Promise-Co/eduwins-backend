@@ -127,6 +127,55 @@
       "when": 1782864000000,
       "tag": "0018_availability_config",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1782729076304,
+      "tag": "0018_glamorous_wendigo",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1782950400000,
+      "tag": "0019_teacher_education_list",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783036800000,
+      "tag": "0020_structured_teacher_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1783123200000,
+      "tag": "0021_teacher_credentials_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1782739847169,
+      "tag": "0022_concerned_star_brand",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1783209600000,
+      "tag": "0023_teacher_certification_images",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1782745563240,
+      "tag": "0024_goofy_overlord",
+      "breakpoints": true
     }
   ]
 }

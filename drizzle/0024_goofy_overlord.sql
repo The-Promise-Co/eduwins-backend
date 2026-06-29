@@ -1,0 +1,1 @@
+ALTER TABLE "teacher_certifications" ADD COLUMN "image_url" varchar(500);
