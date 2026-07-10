@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { db } from '../database/db';
 import { digitalVault, vaultPurchases, users, teacherProfiles, earnings } from '../database/schema';
 import { eq, and, sql, desc, gte, lte } from 'drizzle-orm';
+import logger from '../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -44,7 +45,7 @@ export const getVaultItems = async (req: Request, res: Response) => {
 
     res.json(list);
   } catch (err: any) {
-    console.error('Get vault items error:', err);
+    (req.log || logger).error({ err, query: req.query }, 'vault.list_failed');
     res.status(500).json({ error: 'Failed to fetch vault items' });
   }
 };
@@ -79,7 +80,7 @@ export const getVaultItem = async (req: Request, res: Response) => {
 
     res.json(result[0]);
   } catch (err: any) {
-    console.error('Get vault item error:', err);
+    (req.log || logger).error({ err, itemId: req.params.id }, 'vault.get_failed');
     res.status(500).json({ error: 'Failed to fetch item' });
   }
 };
@@ -116,7 +117,7 @@ export const createVaultItem = async (req: AuthenticatedRequest, res: Response) 
     await db.insert(digitalVault).values(newItem);
     res.status(201).json(newItem);
   } catch (err: any) {
-    console.error('Create vault item error:', err);
+    (req.log || logger).error({ err, teacherId: req.user.id }, 'vault.create_failed');
     res.status(500).json({ error: 'Failed to create vault item' });
   }
 };
@@ -154,7 +155,7 @@ export const updateVaultItem = async (req: AuthenticatedRequest, res: Response) 
 
     res.json({ message: 'Item updated successfully' });
   } catch (err: any) {
-    console.error('Update vault item error:', err);
+    (req.log || logger).error({ err, itemId: req.params.id, teacherId: req.user.id }, 'vault.update_failed');
     res.status(500).json({ error: 'Failed to update vault item' });
   }
 };
@@ -213,7 +214,7 @@ export const purchaseVaultItem = async (req: AuthenticatedRequest, res: Response
       message: 'Purchase successful! You can now download the content.'
     });
   } catch (err: any) {
-    console.error('Purchase vault item error:', err);
+    (req.log || logger).error({ err, itemId: req.params.id, buyerId: req.user.id }, 'vault.purchase_failed');
     res.status(500).json({ error: 'Failed to purchase item' });
   }
 };
@@ -228,7 +229,7 @@ export const getTeacherVaultItems = async (req: Request, res: Response) => {
 
     res.json(list);
   } catch (err: any) {
-    console.error('Get teacher vault items error:', err);
+    (req.log || logger).error({ err, teacherId: req.params.teacherId }, 'vault.teacher_items_failed');
     res.status(500).json({ error: 'Failed to fetch items' });
   }
 };
@@ -255,7 +256,7 @@ export const getMyPurchases = async (req: AuthenticatedRequest, res: Response) =
 
     res.json(list);
   } catch (err: any) {
-    console.error('Get user purchases error:', err);
+    (req.log || logger).error({ err, userId: req.user.id }, 'vault.my_purchases_failed');
     res.status(500).json({ error: 'Failed to fetch purchases' });
   }
 };

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { db } from '../../database/db';
 import { courses } from '../../database/schema';
 import { eq } from 'drizzle-orm';
+import logger from '../../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -34,7 +35,7 @@ export const createCourse = async (req: AuthenticatedRequest, res: Response) => 
 
     res.status(201).json(newCourse);
   } catch (err: any) {
-    console.error('Create course error:', err);
+    (req.log || logger).error({ err, teacherId: req.user.id }, 'course.create_failed');
     res.status(500).json({ error: 'Failed to create course' });
   }
 };
@@ -55,7 +56,7 @@ export const updateCourse = async (req: AuthenticatedRequest, res: Response) => 
 
     res.status(200).json(updated);
   } catch (err: any) {
-    console.error('Update course error:', err);
+    (req.log || logger).error({ err, courseId: req.params.id, teacherId: req.user.id }, 'course.update_failed');
     res.status(500).json({ error: 'Failed to update course' });
   }
 };

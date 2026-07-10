@@ -1,3 +1,5 @@
+import logger from './logger';
+
 /**
  * Send OTP via SMS
  * In test/development mode, logs to console
@@ -6,14 +8,11 @@
  */
 export async function sendOTP(phone: string, otp: string): Promise<void> {
   try {
-    console.log(`\n📱 SMS OTP REQUEST:`);
-    console.log(`   Phone: ${phone}`);
-    console.log(`   OTP Code: ${otp}`);
-    console.log(`   Message: Your EduWins OTP is: ${otp}. Valid for 10 minutes.\n`);
+    logger.debug({ phone, otp }, 'sms.otp_requested');
     
     // For production, implement actual SMS sending here with Termii/Twilio
   } catch (error: any) {
-    console.error(`⚠️ OTP logging failed:`, error.message);
+    logger.error({ err: error, phone }, 'sms.otp_log_failed');
   }
 }
 
@@ -24,12 +23,10 @@ export async function sendOTP(phone: string, otp: string): Promise<void> {
  */
 export async function sendSMS(phone: string, message: string): Promise<void> {
   try {
-    console.log(`\n📱 SMS SEND REQUEST:`);
-    console.log(`   Phone: ${phone}`);
-    console.log(`   Message: ${message}\n`);
+    logger.debug({ phone, message }, 'sms.send_requested');
     
     // For production, implement actual SMS sending here
   } catch (error: any) {
-    console.error(`⚠️ SMS logging failed:`, error.message);
+    logger.error({ err: error, phone }, 'sms.log_failed');
   }
 }

@@ -10,6 +10,7 @@ import {
   bookings,
 } from '../database/schema';
 import { eq, sql, count, and, desc } from 'drizzle-orm';
+import logger from '../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -26,7 +27,7 @@ export const listPlatformConfigs = async (req: AuthenticatedRequest, res: Respon
     const configs = await db.select().from(platformConfigs);
     res.json(configs);
   } catch (err: any) {
-    console.error('List platform configs error:', err);
+    (req.log || logger).error({ err, adminId: req.user.id }, 'admin.platform_configs_list_failed');
     res.status(500).json({ error: 'Could not fetch platform configs' });
   }
 };
@@ -71,7 +72,7 @@ export const createPlatformConfig = async (req: AuthenticatedRequest, res: Respo
 
     res.status(201).json(config);
   } catch (err: any) {
-    console.error('Create platform config error:', err);
+    (req.log || logger).error({ err, adminId: req.user.id, key, target }, 'admin.platform_config_create_failed');
     res.status(500).json({ error: 'Could not create platform config' });
   }
 };
@@ -116,7 +117,7 @@ export const updatePlatformConfig = async (req: AuthenticatedRequest, res: Respo
     if (!config) return res.status(404).json({ error: 'Config not found' });
     res.json(config);
   } catch (err: any) {
-    console.error('Update platform config error:', err);
+    (req.log || logger).error({ err, adminId: req.user.id, configId: id }, 'admin.platform_config_update_failed');
     res.status(500).json({ error: 'Could not update platform config' });
   }
 };
@@ -133,7 +134,7 @@ export const deletePlatformConfig = async (req: AuthenticatedRequest, res: Respo
     if (!config) return res.status(404).json({ error: 'Config not found' });
     res.json({ message: 'Config disabled', config });
   } catch (err: any) {
-    console.error('Disable platform config error:', err);
+    (req.log || logger).error({ err, adminId: req.user.id, configId: id }, 'admin.platform_config_disable_failed');
     res.status(500).json({ error: 'Could not disable platform config' });
   }
 };
@@ -172,7 +173,7 @@ export const listVettingQueue = async (req: AuthenticatedRequest, res: Response)
 
     res.json(result);
   } catch (err: any) {
-    console.error('List vetting queue error:', err);
+    (req.log || logger).error({ err, adminId: req.user.id }, 'admin.vetting_queue_failed');
     res.status(500).json({ error: 'Could not fetch vetting queue' });
   }
 };
@@ -196,7 +197,7 @@ export const processVetting = async (req: AuthenticatedRequest, res: Response) =
 
     res.json({ message: `Teacher ${action}d successfully`, teacherId, action });
   } catch (err: any) {
-    console.error('Process vetting error:', err);
+    (req.log || logger).error({ err, adminId: req.user.id, teacherId, action }, 'admin.vetting_process_failed');
     res.status(500).json({ error: 'Could not process vetting' });
   }
 };
@@ -211,7 +212,7 @@ export const verifyDocument = async (req: AuthenticatedRequest, res: Response) =
 
     res.json({ message: 'Document verified successfully' });
   } catch (err: any) {
-    console.error('Verify document error:', err);
+    (req.log || logger).error({ err, adminId: req.user.id, documentId }, 'admin.document_verify_failed');
     res.status(500).json({ error: 'Could not verify document' });
   }
 };
@@ -226,7 +227,7 @@ export const rejectDocument = async (req: AuthenticatedRequest, res: Response) =
 
     res.json({ message: 'Document rejected' });
   } catch (err: any) {
-    console.error('Reject document error:', err);
+    (req.log || logger).error({ err, adminId: req.user.id, documentId }, 'admin.document_reject_failed');
     res.status(500).json({ error: 'Could not reject document' });
   }
 };
@@ -316,7 +317,7 @@ export const getWelfareAnalytics = async (req: AuthenticatedRequest, res: Respon
       // More analytics could be added here
     });
   } catch (err: any) {
-    console.error('Welfare analytics error:', err);
+    (req.log || logger).error({ err, adminId: req.user.id }, 'admin.welfare_analytics_failed');
     res.status(500).json({ error: 'Could not fetch welfare analytics' });
   }
 };

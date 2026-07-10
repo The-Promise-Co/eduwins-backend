@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../../database/db';
 import { courseEnrollments, courseLessons, courseProgress, courses, modules } from '../../database/schema';
+import logger from '../../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user: { id: string; role: string };
@@ -87,7 +88,7 @@ export const updateCourseProgress = async (req: AuthenticatedRequest, res: Respo
 
     res.json({ progress, summary });
   } catch (err: any) {
-    console.error('Update course progress error:', err);
+    (req.log || logger).error({ err, courseId: req.params.id, userId: req.user.id, lessonId: req.body?.lessonId }, 'course.progress_update_failed');
     res.status(500).json({ error: 'Failed to update course progress' });
   }
 };

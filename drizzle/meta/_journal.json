@@ -176,6 +176,34 @@
       "when": 1782745563240,
       "tag": "0024_goofy_overlord",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783296000000,
+      "tag": "0025_booking_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1782834293689,
+      "tag": "0026_remarkable_joystick",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1783382400000,
+      "tag": "0027_booking_request_note",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1782877156397,
+      "tag": "0028_luxuriant_stark_industries",
+      "breakpoints": true
     }
   ]
 }

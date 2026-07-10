@@ -4,6 +4,7 @@ import { courses, modules, courseLessons, courseEnrollments } from '../../databa
 import { eq, asc, sql, and } from 'drizzle-orm';
 import { attachTeacherNames } from './attachTeacherNames';
 import { buildProgressSummary } from './progress';
+import logger from '../../utils/logger';
 
 // List courses for a specific teacher
 export const getCoursesByTeacher = async (req: Request, res: Response) => {
@@ -62,7 +63,7 @@ export const getCoursesByTeacher = async (req: Request, res: Response) => {
       }
     });
   } catch (err: any) {
-    console.error('Get courses by teacher error:', err);
+    (req.log || logger).error({ err, teacherId: req.params.teacherId, query: req.query }, 'course.list_by_teacher_failed');
     res.status(500).json({ error: 'Failed to fetch teacher courses' });
   }
 };
@@ -118,7 +119,7 @@ export const listCourses = async (req: Request, res: Response) => {
       }
     });
   } catch (err: any) {
-    console.error('List courses error:', err);
+    (req.log || logger).error({ err, query: req.query }, 'course.list_failed');
     res.status(500).json({ error: 'Failed to fetch courses' });
   }
 };
@@ -151,7 +152,7 @@ export const getCourseById = async (req: Request, res: Response) => {
 
     res.status(200).json(courseWithTeacherName);
   } catch (err: any) {
-    console.error('Get course error:', err);
+    (req.log || logger).error({ err, courseId: req.params.id }, 'course.get_failed');
     res.status(500).json({ error: 'Failed to fetch course' });
   }
 };
@@ -200,7 +201,7 @@ export const getCourseForLearning = async (req: Request, res: Response) => {
       progress: progressSummary,
     });
   } catch (err: any) {
-    console.error('Get learning course error:', err);
+    (req.log || logger).error({ err, courseId: req.params.id, userId: (req as any).user?.id }, 'course.learning_get_failed');
     res.status(500).json({ error: 'Failed to fetch course lessons' });
   }
 };

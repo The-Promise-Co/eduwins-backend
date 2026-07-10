@@ -4,6 +4,7 @@ import { lessons, bookings, users } from '../database/schema';
 import { eq, and, sql, desc, count } from 'drizzle-orm';
 import { generateOTP } from '../utils/otpGenerator';
 import { sendSMS } from '../utils/smsSender';
+import logger from '../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -46,7 +47,7 @@ export const getParentChildren = async (req: AuthenticatedRequest, res: Response
 
     res.json({ children });
   } catch (err: any) {
-    console.error('Error fetching children:', err);
+    (req.log || logger).error({ err, parentId }, 'lesson.parent_children_list_failed');
     res.status(500).json({ error: 'Failed to fetch children' });
   }
 };
@@ -72,7 +73,7 @@ export const getParentPendingConfirmations = async (req: AuthenticatedRequest, r
 
     res.json({ lessons: list });
   } catch (err: any) {
-    console.error('Error fetching pending confirmations:', err);
+    (req.log || logger).error({ err, parentId }, 'lesson.pending_confirmations_list_failed');
     res.status(500).json({ error: 'Failed to fetch lessons' });
   }
 };
@@ -128,7 +129,7 @@ export const parentConfirmLesson = async (req: AuthenticatedRequest, res: Respon
 
     res.json({ message: 'Lesson confirmed successfully' });
   } catch (err: any) {
-    console.error('Error confirming lesson:', err);
+    (req.log || logger).error({ err, parentId, lessonId }, 'lesson.parent_confirm_failed');
     res.status(500).json({ error: 'Failed to confirm lesson' });
   }
 }; 
@@ -168,7 +169,7 @@ export const teacherCompleteLesson = async (req: AuthenticatedRequest, res: Resp
 
     res.json({ message: 'Lesson marked complete and OTP sent to parent' });
   } catch (err: any) {
-    console.error('Error completing lesson:', err);
+    (req.log || logger).error({ err, teacherId, lessonId }, 'lesson.teacher_complete_failed');
     res.status(500).json({ error: 'Failed to mark lesson complete' });
   }
 };

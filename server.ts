@@ -29,18 +29,19 @@ import referralRoutes from './routes/referrals';
 import childrenRoutes from './routes/children';
 import teacherRoutes from './routes/teachers';
 import walletRoutes from './routes/wallets';
+import bookingRoutes from './routes/bookings';
+import notificationRoutes from './routes/notifications';
 
 import authenticateToken from './middleware/auth';
 import { initRedis } from './config/redis';
 import logger from './utils/logger';
+import { requestLogger } from './middleware/requestLogger';
 
 const app = express();
 // initRedis();
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-
-console.log(process.env.NODE_ENV, isProduction);
 const configuredPort = Number(process.env.PORT || process.env.BACKEND_PORT);
 const PORT = Number.isFinite(configuredPort) ? configuredPort : 5000;
 const HOST = process.env.HOST || (isProduction ? '' : 'localhost');
@@ -103,55 +104,9 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
+app.use(requestLogger);
 app.use(express.json());
 app.use(express.static(uploadsDir));
-
-// ── Request / Response logger ──────────────────────────────────────────────
-app.use((req: Request, res: Response, next: NextFunction) => {
-  const start = Date.now();
-
-  // Sanitise body — mask password fields so they never appear in logs
-  const sanitiseBody = (body: Record<string, any>) => {
-    if (!body || typeof body !== 'object') return body;
-    const REDACTED = ['password', 'currentPassword', 'newPassword', 'confirmPassword', 'apiSecret'];
-    return Object.fromEntries(
-      Object.entries(body).map(([k, v]) =>
-        REDACTED.some(r => k.toLowerCase().includes(r.toLowerCase())) ? [k, '***'] : [k, v]
-      )
-    );
-  };
-
-  logger.info(
-    { method: req.method, path: req.path, body: sanitiseBody(req.body) },
-    `→ ${req.method} ${req.path}`
-  );
-
-  // Intercept outgoing response to log status + duration
-  const logResponse = (statusCode: number) => {
-    const ms = Date.now() - start;
-    const level = statusCode >= 500 ? 'error'
-      : statusCode >= 400 ? 'warn'
-        : 'info';
-    logger[level](
-      { method: req.method, path: req.path, statusCode, ms },
-      `← ${statusCode} ${req.method} ${req.path} (${ms}ms)`
-    );
-  };
-
-  const origJson = res.json.bind(res);
-  res.json = function (body) {
-    logResponse(res.statusCode);
-    return origJson(body);
-  };
-
-  const origSend = res.send.bind(res);
-  res.send = function (body) {
-    logResponse(res.statusCode);
-    return origSend(body);
-  };
-
-  next();
-});
 
 // Rate limiting
 const limiter = rateLimit({
@@ -195,6 +150,8 @@ app.use('/api/referrals', referralRoutes);
 app.use('/api/children', childrenRoutes);
 app.use('/api/teachers', teacherRoutes);
 app.use('/api/wallets', walletRoutes);
+app.use('/api/bookings', bookingRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'Backend is running', timestamp: new Date() });
@@ -205,12 +162,23 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: t
 
 // Error handling middleware
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Internal server error' });
+  const requestId = req.id;
+  const log = req.log || logger;
+
+  log.error({
+    err,
+    requestId,
+    method: req.method,
+    path: req.originalUrl || req.url,
+    userId: (req as any).user?.id,
+    role: (req as any).user?.role,
+  }, 'request.unhandled_error');
+
+  res.status(500).json({ error: 'Internal server error', requestId });
 });
-console.log("Starting server...");
+
+logger.info({ port: PORT, host: HOST, publicApiUrl: PUBLIC_API_URL, isProduction }, 'server.starting');
 
 app.listen(PORT, HOST, () => {
-  console.log(`🚀 Backend running on ${HOST}:${PORT}`);
-  console.log(`📍 API available at ${PUBLIC_API_URL}`);
+  logger.info({ port: PORT, host: HOST, publicApiUrl: PUBLIC_API_URL }, 'server.started');
 });

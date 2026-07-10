@@ -8,6 +8,7 @@ import {
   teacherEducations,
 } from '../database/schema';
 import { eq } from 'drizzle-orm';
+import logger from '../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -39,7 +40,7 @@ export const uploadHeadshot = async (req: AuthenticatedRequest, res: Response) =
       photoUrl,
     });
   } catch (err: any) {
-    console.error('Headshot upload error:', err);
+    (req.log || logger).error({ err, teacherId }, 'upload.headshot_failed');
     res.status(500).json({ error: 'Failed to upload headshot' });
   }
 };
@@ -63,7 +64,7 @@ export const uploadVideoIntro = async (req: AuthenticatedRequest, res: Response)
       videoUrl,
     });
   } catch (err: any) {
-    console.error('Video intro upload error:', err);
+    (req.log || logger).error({ err, teacherId }, 'upload.video_intro_failed');
     res.status(500).json({ error: 'Failed to upload video intro' });
   }
 };
@@ -101,7 +102,7 @@ export const uploadDocument = async (req: AuthenticatedRequest, res: Response) =
 
     res.status(201).json(newDoc);
   } catch (err: any) {
-    console.error('Document upload error:', err);
+    (req.log || logger).error({ err, teacherId }, 'upload.document_failed');
     res.status(500).json({ error: 'Failed to upload document' });
   }
 };
@@ -117,7 +118,7 @@ export const listDocuments = async (req: AuthenticatedRequest, res: Response) =>
 
     res.status(200).json(docs);
   } catch (err: any) {
-    console.error('List documents error:', err);
+    (req.log || logger).error({ err, teacherId }, 'upload.documents_list_failed');
     res.status(500).json({ error: 'Failed to list documents' });
   }
 };
@@ -131,7 +132,7 @@ export const deleteDocument = async (req: AuthenticatedRequest, res: Response) =
 
     res.status(200).json({ message: 'Document deleted' });
   } catch (err: any) {
-    console.error('Delete document error:', err);
+    (req.log || logger).error({ err, documentId: id, teacherId: req.user.id }, 'upload.document_delete_failed');
     res.status(500).json({ error: 'Failed to delete document' });
   }
 };

@@ -6,6 +6,7 @@ import {
 } from '../database/schema';
 import { eq, sql } from 'drizzle-orm';
 import { creditWallet, debitWallet, ensurePlatformWallet, ensureUserWallets, getUserWallets } from '../services/walletService';
+import logger from '../utils/logger';
 
 /**
  * Payment Split System:
@@ -107,7 +108,7 @@ export const processPaymentWithWelfareFund = async (req: Request, res: Response)
       splits: { teacherEarnings, platformFee, welfareFund },
     });
   } catch (err: any) {
-    console.error('Payment processing error:', err);
+    (req.log || logger).error({ err, lessonId, teacherId, parentId, amount }, 'payment_split.process_failed');
     return res.status(500).json({ error: 'Payment processing failed' });
   }
 };
@@ -131,7 +132,7 @@ export const getWelfareFund = async (req: Request, res: Response) => {
       contributions,
     });
   } catch (err: any) {
-    console.error('Error fetching welfare fund:', err);
+    (req.log || logger).error({ err, teacherId }, 'payment_split.welfare_get_failed');
     res.status(500).json({ error: 'Failed to fetch welfare fund' });
   }
 };
@@ -146,7 +147,7 @@ export const unlockWelfareFunds = async (req: Request, res: Response) => {
 
     res.status(200).json({ message: 'Welfare funds unlocked successfully' });
   } catch (err: any) {
-    console.error('Error unlocking welfare funds:', err);
+    (req.log || logger).error({ err }, 'payment_split.welfare_unlock_failed');
     res.status(500).json({ error: 'Failed to unlock welfare funds' });
   }
 };
@@ -161,7 +162,7 @@ export const getCentralWelfareAnalytics = async (req: Request, res: Response) =>
 
     res.json(results[0]);
   } catch (err: any) {
-    console.error('Central welfare analytics error:', err);
+    (req.log || logger).error({ err }, 'payment_split.welfare_analytics_failed');
     res.status(500).json({ error: 'Could not calculate welfare analytics' });
   }
 };
@@ -217,7 +218,7 @@ export const withdrawFromWelfareFund = async (req: Request, res: Response) => {
       newAvailableBalance: availableWelfare - numAmount,
     });
   } catch (err: any) {
-    console.error('Welfare withdrawal error:', err);
+    (req.log || logger).error({ err, teacherId, amount }, 'payment_split.welfare_withdraw_failed');
     res.status(500).json({ error: 'Withdrawal failed' });
   }
 };

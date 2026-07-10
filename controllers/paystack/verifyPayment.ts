@@ -5,6 +5,8 @@ import { platformConfigs, transactions } from '../../database/schema';
 import { eq } from 'drizzle-orm';
 import { enrollUserInCourse } from '../courses/enrollment';
 import { creditWallet, ensurePlatformWallet, ensureUserWallets } from '../../services/walletService';
+import logger from '../../utils/logger';
+import { createNotification } from '../notificationController';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
@@ -44,11 +46,13 @@ export const settleCoursePayment = async ({
   metadata,
   paymentData,
   enrollmentResult,
+  log = logger,
 }: {
   amount: number;
   metadata: Record<string, any>;
   paymentData: Record<string, any>;
   enrollmentResult: Awaited<ReturnType<typeof enrollUserInCourse>> | null;
+  log?: typeof logger;
 }) => {
   const splits = await calculateCourseSplits(amount);
   const alreadyEnrolled = enrollmentResult?.alreadyEnrolled || false;
@@ -60,11 +64,26 @@ export const settleCoursePayment = async ({
     });
 
     if (existingTransaction) {
+      log.info({
+        reference: paystackReference,
+        transactionId: existingTransaction.id,
+        courseId: metadata.course_id,
+        userId: metadata.user_id,
+        teacherId: metadata.teacher_id,
+      }, 'payment.settlement_skipped_existing_transaction');
       return { splits, transactionId: existingTransaction.id, walletTransactions: [] };
     }
   }
 
   if (!enrollmentResult || alreadyEnrolled) {
+    log.info({
+      reference: paystackReference,
+      courseId: metadata.course_id,
+      userId: metadata.user_id,
+      teacherId: metadata.teacher_id,
+      alreadyEnrolled,
+      hasEnrollment: Boolean(enrollmentResult),
+    }, 'payment.settlement_skipped_no_enrollment');
     return { splits, transactionId: null, walletTransactions: [] };
   }
 
@@ -85,6 +104,12 @@ export const settleCoursePayment = async ({
   });
 
   if (!metadata.teacher_id) {
+    log.warn({
+      reference: paystackReference,
+      transactionId,
+      courseId: metadata.course_id,
+      userId: metadata.user_id,
+    }, 'payment.settlement_skipped_missing_teacher');
     return { splits, transactionId, walletTransactions: [] };
   }
 
@@ -115,6 +140,13 @@ export const settleCoursePayment = async ({
     }));
   }
 
+  await createNotification({
+    userId: metadata.teacher_id,
+    type: 'course_payment',
+    title: 'Course payment received',
+    message: `A course payment of ₦${amount.toLocaleString()} was received.`,
+  });
+
   if (splits.welfareAmount > 0) {
     walletTransactions.push(await creditWallet({
       ownerId: metadata.teacher_id,
@@ -142,17 +174,33 @@ export const settleCoursePayment = async ({
     }));
   }
 
+  log.info({
+    reference: paystackReference,
+    transactionId,
+    courseId: metadata.course_id,
+    userId: metadata.user_id,
+    teacherId: metadata.teacher_id,
+    amount,
+    tutorAmount: splits.tutorAmount,
+    welfareAmount: splits.welfareAmount,
+    platformFee: splits.platformFee,
+    walletTransactionCount: walletTransactions.length,
+  }, 'payment.settlement_succeeded');
+
   return { splits, transactionId, walletTransactions };
 };
 
 export const verifyPayment = async (req: Request, res: Response) => {
   const { reference } = req.params;
+  const log = (req as any).log || logger;
 
   if (!PAYSTACK_SECRET) {
     return res.status(500).json({ error: 'Paystack not configured' });
   }
 
   try {
+    log.info({ reference, provider: 'paystack' }, 'payment.verify_started');
+
     const response = await axios.get(`https://api.paystack.co/transaction/verify/${reference}`, {
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET}`,
@@ -162,6 +210,12 @@ export const verifyPayment = async (req: Request, res: Response) => {
     const data = response.data.data;
 
     if (data.status !== 'success') {
+      log.warn({
+        reference,
+        provider: 'paystack',
+        status: data.status,
+        gatewayResponse: data.gateway_response,
+      }, 'payment.verify_unsuccessful');
       return res.status(400).json({ error: 'Payment was not successful', payment: data });
     }
 
@@ -179,6 +233,7 @@ export const verifyPayment = async (req: Request, res: Response) => {
         metadata,
         paymentData: data,
         enrollmentResult,
+        log,
       });
     } else {
       const transactionId = Math.random().toString(36).substring(2, 15);
@@ -191,7 +246,26 @@ export const verifyPayment = async (req: Request, res: Response) => {
         type: 'payment_in',
         metadata: data,
       });
+
+      log.info({
+        reference: data.reference || reference,
+        transactionId,
+        bookingId: metadata.booking_id,
+        teacherId: metadata.teacher_id,
+        amount,
+        provider: 'paystack',
+      }, 'payment.transaction_recorded');
     }
+
+    log.info({
+      reference: data.reference || reference,
+      amount,
+      courseId: metadata.course_id,
+      userId: metadata.user_id,
+      enrolled: Boolean(enrollmentResult),
+      alreadyEnrolled: enrollmentResult?.alreadyEnrolled || false,
+      provider: 'paystack',
+    }, 'payment.verify_succeeded');
 
     res.json({
       // ...data,
@@ -202,7 +276,12 @@ export const verifyPayment = async (req: Request, res: Response) => {
       enrollment: enrollmentResult?.enrollment || null,
     });
   } catch (err: any) {
-    console.error('Paystack verify error:', err.response?.data || err.message);
+    log.error({
+      err,
+      reference,
+      provider: 'paystack',
+      providerError: err.response?.data,
+    }, 'payment.verify_failed');
     return res.status(500).json({ error: 'Could not verify payment' });
   }
 };

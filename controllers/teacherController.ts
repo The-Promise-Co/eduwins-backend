@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { db } from '../database/db';
 import { users, teacherProfiles, teacherCertifications, teacherEducations } from '../database/schema';
 import { eq, sql, ilike, or, and } from 'drizzle-orm';
+import logger from '../utils/logger';
 
 export const getTeacherById = async (req: Request, res: Response) => {
   try {
@@ -58,7 +59,7 @@ export const getTeacherById = async (req: Request, res: Response) => {
 
     res.status(200).json({ ...teacher, certifications, education });
   } catch (err: any) {
-    console.error('Get teacher error:', err);
+    (req.log || logger).error({ err, teacherId: req.params.id }, 'teacher.get_failed');
     res.status(500).json({ error: 'Failed to fetch teacher' });
   }
 };
@@ -128,7 +129,7 @@ export const searchTeachers = async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    console.error('Search teachers error:', err);
+    (req.log || logger).error({ err, query: req.query }, 'teacher.search_failed');
     res.status(500).json({ error: 'Failed to search teachers' });
   }
 };

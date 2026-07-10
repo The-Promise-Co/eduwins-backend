@@ -9,6 +9,7 @@ import {
 import { eq, and, or, sql, desc } from 'drizzle-orm';
 import { calculateTotalWelfareFund } from '../utils/welfareCalculator';
 import dotenv from 'dotenv';
+import logger from '../utils/logger';
 
 dotenv.config();
 
@@ -80,8 +81,8 @@ export const getAvailableBalance = async (req: AuthenticatedRequest, res: Respon
       processingFee: `${WITHDRAWAL_CONFIG.PROCESSING_FEE_PERCENTAGE}%`,
       estimatedProcessingTime: `${WITHDRAWAL_CONFIG.PROCESSING_TIME_HOURS} hours`,
     });
-  } catch (error) {
-    console.error('Get available balance error:', error);
+  } catch (err) {
+    (req.log || logger).error({ err, teacherId: req.user.id }, 'withdrawal.available_balance_failed');
     res.status(500).json({ error: 'Could not fetch available balance' });
   }
 };
@@ -180,8 +181,8 @@ export const initiateWithdrawal = async (req: AuthenticatedRequest, res: Respons
       message: 'Withdrawal initiated successfully',
       details: { amount, netAmount, status: 'pending' },
     });
-  } catch (error) {
-    console.error('Initiate withdrawal error:', error);
+  } catch (err) {
+    (req.log || logger).error({ err, teacherId: req.user.id }, 'withdrawal.initiate_failed');
     res.status(500).json({ error: 'Could not initiate withdrawal' });
   }
 };
@@ -239,7 +240,13 @@ export const processWithdrawal = async (req: Request, res: Response) => {
         res.json({ success: true, reference: transferResponse.data.data.reference });
       }
     } catch (paymentError: any) {
-      console.error('Transfer error:', paymentError.message);
+      (req.log || logger).error({
+        err: paymentError,
+        withdrawalId,
+        teacherId,
+        provider: 'paystack',
+        providerError: paymentError.response?.data,
+      }, 'withdrawal.transfer_failed');
 
       await db.update(withdrawals).set({
         status: 'failed',
@@ -256,8 +263,8 @@ export const processWithdrawal = async (req: Request, res: Response) => {
 
       res.status(500).json({ error: 'Transfer failed' });
     }
-  } catch (error) {
-    console.error('Process withdrawal error:', error);
+  } catch (err) {
+    (req.log || logger).error({ err, withdrawalId: req.body?.withdrawalId, teacherId: req.body?.teacherId }, 'withdrawal.process_failed');
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -274,7 +281,8 @@ export const getWithdrawalHistory = async (req: AuthenticatedRequest, res: Respo
       .offset(parseInt(offset as string));
 
     res.json({ success: true, withdrawals: list });
-  } catch (error) {
+  } catch (err) {
+    (req.log || logger).error({ err, teacherId: req.user.id, query: req.query }, 'withdrawal.history_failed');
     res.status(500).json({ error: 'Could not fetch history' });
   }
 };
@@ -306,7 +314,8 @@ export const cancelWithdrawal = async (req: AuthenticatedRequest, res: Response)
     }).where(eq(earnings.teacherId, teacherId));
 
     res.json({ success: true, message: 'Withdrawal cancelled' });
-  } catch (error) {
+  } catch (err) {
+    (req.log || logger).error({ err, teacherId: req.user.id, withdrawalId: req.params.withdrawalId }, 'withdrawal.cancel_failed');
     res.status(500).json({ error: 'Cancel failed' });
   }
 };
@@ -317,7 +326,8 @@ export const getBankCodes = async (req: Request, res: Response) => {
       headers: { Authorization: `Bearer ${PAYSTACK_SECRET}` },
     });
     res.json({ success: true, banks: banksResponse.data.data });
-  } catch (error) {
+  } catch (err) {
+    (req.log || logger).error({ err, provider: 'paystack' }, 'withdrawal.banks_list_failed');
     res.status(500).json({ error: 'Could not fetch banks' });
   }
 };
@@ -336,8 +346,8 @@ export const getWithdrawalDetails = async (req: AuthenticatedRequest, res: Respo
     }
 
     res.json({ success: true, withdrawal });
-  } catch (error) {
-    console.error('Get withdrawal details error:', error);
+  } catch (err) {
+    (req.log || logger).error({ err, teacherId: req.user.id, withdrawalId: req.params.withdrawalId }, 'withdrawal.details_failed');
     res.status(500).json({ error: 'Could not fetch withdrawal details' });
   }
 };

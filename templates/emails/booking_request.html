@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <title>New booking request</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#F5F7FC;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">{{parentName}} requested a tutoring session on Eduwins.</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background-color:#F5F7FC;">
+      <tr>
+        <td align="center" style="padding:36px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:640px;background-color:#ffffff;border:1px solid #E6EAF5;border-radius:28px;overflow:hidden;">
+            <tr>
+              <td style="background-color:#001A72;padding:34px 34px 30px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                  <tr>
+                    <td>
+                      <span style="display:inline-block;background-color:#FFB81C;color:#001A72;border-radius:999px;padding:8px 14px;font-size:11px;font-weight:900;letter-spacing:1.2px;text-transform:uppercase;">Eduwins</span>
+                    </td>
+                    <td align="right" style="color:#ffffff;font-size:12px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;opacity:.76;">Booking Request</td>
+                  </tr>
+                </table>
+                <h1 style="margin:24px 0 0;color:#ffffff;font-size:30px;line-height:1.15;font-weight:900;letter-spacing:-.4px;">You have a new booking request</h1>
+                <p style="margin:12px 0 0;color:#DDE6FF;font-size:15px;line-height:1.7;">Review the session details and respond from your tutor dashboard.</p>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:32px 34px 8px;">
+                <p style="margin:0;color:#374151;font-size:15px;line-height:1.7;"><strong style="color:#001A72;font-weight:900;">{{parentName}}</strong> requested a tutoring session with you.</p>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:20px 34px 0;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background-color:#F8FAFF;border:1px solid #E6EAF5;border-radius:24px;overflow:hidden;">
+                  <tr>
+                    <td style="padding:18px 20px;border-bottom:1px solid #E6EAF5;">
+                      <p style="margin:0 0 4px;color:#6B7280;font-size:11px;font-weight:900;letter-spacing:1px;text-transform:uppercase;">Session Date</p>
+                      <p style="margin:0;color:#001A72;font-size:17px;font-weight:900;line-height:1.4;">{{sessionDate}}</p>
+                    </td>
+                    <td style="padding:18px 20px;border-bottom:1px solid #E6EAF5;border-left:1px solid #E6EAF5;">
+                      <p style="margin:0 0 4px;color:#6B7280;font-size:11px;font-weight:900;letter-spacing:1px;text-transform:uppercase;">Time</p>
+                      <p style="margin:0;color:#001A72;font-size:17px;font-weight:900;line-height:1.4;">{{sessionTime}}</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:18px 20px;border-bottom:1px solid #E6EAF5;">
+                      <p style="margin:0 0 4px;color:#6B7280;font-size:11px;font-weight:900;letter-spacing:1px;text-transform:uppercase;">Duration</p>
+                      <p style="margin:0;color:#111827;font-size:15px;font-weight:900;line-height:1.4;">{{duration}}</p>
+                    </td>
+                    <td style="padding:18px 20px;border-bottom:1px solid #E6EAF5;border-left:1px solid #E6EAF5;">
+                      <p style="margin:0 0 4px;color:#6B7280;font-size:11px;font-weight:900;letter-spacing:1px;text-transform:uppercase;">Learners</p>
+                      <p style="margin:0;color:#111827;font-size:15px;font-weight:900;line-height:1.4;">{{learnerSummary}}</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colspan="2" style="padding:18px 20px;border-bottom:1px solid #E6EAF5;">
+                      <p style="margin:0 0 4px;color:#6B7280;font-size:11px;font-weight:900;letter-spacing:1px;text-transform:uppercase;">Parent Note</p>
+                      <p style="margin:0;color:#111827;font-size:14px;font-weight:700;line-height:1.6;">{{note}}</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colspan="2" style="padding:20px;background-color:#FFF8E6;">
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                        <tr>
+                          <td style="color:#6B7280;font-size:11px;font-weight:900;letter-spacing:1px;text-transform:uppercase;">Estimated Total</td>
+                          <td align="right" style="color:#001A72;font-size:24px;font-weight:900;">{{totalAmount}}</td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td align="center" style="padding:30px 34px 10px;">
+                <a href="{{ctaUrl}}" style="display:inline-block;background-color:#FFB81C;color:#001A72;text-decoration:none;border-radius:16px;padding:16px 30px;font-size:13px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;">View Request</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:12px 34px 34px;">
+                <p style="margin:0;color:#6B7280;font-size:13px;line-height:1.7;text-align:center;">Accept or deny this request from your dashboard. Parents will be notified after you respond.</p>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:18px 0 0;color:#9CA3AF;font-size:12px;line-height:1.6;text-align:center;">Eduwins · Helping families connect with trusted tutors</p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

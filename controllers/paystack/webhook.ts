@@ -5,10 +5,12 @@ import { transactions, bookings } from '../../database/schema';
 import { eq } from 'drizzle-orm';
 import { enrollUserInCourse } from '../courses/enrollment';
 import { settleCoursePayment } from './verifyPayment';
+import logger from '../../utils/logger';
 
 export const paystackWebhook = async (req: Request, res: Response) => {
   const hash = req.headers['x-paystack-signature'] as string;
   const secret = process.env.PAYSTACK_SECRET_KEY;
+  const log = req.log || logger;
 
   if (!secret) return res.status(500).json({ error: 'Paystack not configured' });
 
@@ -16,10 +18,17 @@ export const paystackWebhook = async (req: Request, res: Response) => {
   const expectedHash = crypto.createHmac('sha512', secret).update(body).digest('hex');
 
   if (expectedHash !== hash) {
+    log.warn({ provider: 'paystack' }, 'payment.webhook_invalid_signature');
     return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 
   const event = req.body;
+
+  log.info({
+    provider: 'paystack',
+    event: event.event,
+    reference: event.data?.reference,
+  }, 'payment.webhook_received');
 
   if (event.event === 'charge.success') {
     try {
@@ -32,6 +41,12 @@ export const paystackWebhook = async (req: Request, res: Response) => {
             paymentReference: event.data.reference
           })
           .where(eq(bookings.id, metadata.booking_id));
+
+        log.info({
+          bookingId: metadata.booking_id,
+          reference: event.data.reference,
+          provider: 'paystack',
+        }, 'payment.webhook_booking_marked_paid');
       }
 
       if (metadata.course_id && metadata.user_id) {
@@ -42,6 +57,7 @@ export const paystackWebhook = async (req: Request, res: Response) => {
           metadata,
           paymentData: event.data,
           enrollmentResult,
+          log,
         });
 
         return res.json({ received: true });
@@ -58,8 +74,22 @@ export const paystackWebhook = async (req: Request, res: Response) => {
         metadata: event.data,
       });
 
+      log.info({
+        transactionId,
+        bookingId: metadata.booking_id,
+        teacherId: metadata.teacher_id,
+        reference: event.data.reference,
+        amount: event.data.amount / 100,
+        provider: 'paystack',
+      }, 'payment.webhook_transaction_recorded');
+
     } catch (err) {
-      console.error('Paystack webhook processing failed:', err);
+      log.error({
+        err,
+        provider: 'paystack',
+        event: event.event,
+        reference: event.data?.reference,
+      }, 'payment.webhook_processing_failed');
       return res.status(500).json({ error: 'Webhook processing failed' });
     }
   }

@@ -1,6 +1,7 @@
 import { db } from '../database/db';
 import { walletTransactions, wallets } from '../database/schema';
 import { and, desc, eq, isNull } from 'drizzle-orm';
+import logger from '../utils/logger';
 
 export type WalletType = 'main' | 'referrals' | 'welfare' | 'fees';
 
@@ -41,7 +42,10 @@ export const ensureWallet = async (ownerType: 'user' | 'platform', ownerId: stri
     status: 'active',
   }).onConflictDoNothing().returning();
 
-  if (created) return created;
+  if (created) {
+    logger.info({ ownerType, ownerId, walletType, walletId: created.id }, 'wallet.ensure_created');
+    return created;
+  }
 
   return db.query.wallets.findFirst({ where });
 };
@@ -104,6 +108,20 @@ export const creditWallet = async (input: WalletMutationInput) => {
     metadata: input.metadata,
   }).returning();
 
+  logger.info({
+    walletId: wallet.id,
+    ownerId: wallet.ownerId,
+    ownerType: wallet.ownerType,
+    walletType: wallet.walletType,
+    amount: input.amount,
+    balanceBefore,
+    balanceAfter,
+    transactionId: transaction.id,
+    transactionType: input.type,
+    referenceType: input.referenceType,
+    referenceId: input.referenceId,
+  }, 'wallet.credit_succeeded');
+
   return transaction;
 };
 
@@ -115,7 +133,20 @@ export const debitWallet = async (input: WalletMutationInput) => {
   if (!wallet) throw new Error('Wallet not found');
 
   const balanceBefore = parseFloat(wallet.balance?.toString() || '0');
-  if (balanceBefore < input.amount) throw new Error('Insufficient wallet balance');
+  if (balanceBefore < input.amount) {
+    logger.warn({
+      walletId: wallet.id,
+      ownerId: wallet.ownerId,
+      ownerType: wallet.ownerType,
+      walletType: wallet.walletType,
+      amount: input.amount,
+      balanceBefore,
+      transactionType: input.type,
+      referenceType: input.referenceType,
+      referenceId: input.referenceId,
+    }, 'wallet.debit_failed_insufficient_balance');
+    throw new Error('Insufficient wallet balance');
+  }
 
   const balanceAfter = balanceBefore - input.amount;
 
@@ -136,6 +167,20 @@ export const debitWallet = async (input: WalletMutationInput) => {
     description: input.description,
     metadata: input.metadata,
   }).returning();
+
+  logger.info({
+    walletId: wallet.id,
+    ownerId: wallet.ownerId,
+    ownerType: wallet.ownerType,
+    walletType: wallet.walletType,
+    amount: input.amount,
+    balanceBefore,
+    balanceAfter,
+    transactionId: transaction.id,
+    transactionType: input.type,
+    referenceType: input.referenceType,
+    referenceId: input.referenceId,
+  }, 'wallet.debit_succeeded');
 
   return transaction;
 };

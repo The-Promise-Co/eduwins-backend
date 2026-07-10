@@ -3,7 +3,7 @@ import axios from 'axios';
 import { db } from '../../database/db';
 import { courses } from '../../database/schema';
 import { eq } from 'drizzle-orm';
-import { log } from 'console';
+import logger from '../../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user?: { id: string; email?: string; role?: string };
@@ -56,6 +56,7 @@ export const initializePaystackTransaction = async ({
 export const initializePayment = async (req: AuthenticatedRequest, res: Response) => {
   const { email, amount, currency, reference, callback_url, course_id } = req.body;
   const userId = req.user?.id;
+  const log = req.log || logger;
 
   if (!PAYSTACK_SECRET) {
     return res.status(500).json({ error: 'Paystack not configured' });
@@ -93,6 +94,14 @@ export const initializePayment = async (req: AuthenticatedRequest, res: Response
   }
 
   try {
+    log.info({
+      userId,
+      courseId: course_id,
+      reference,
+      amount: Number(amount),
+      currency: currency || 'NGN',
+    }, 'payment.initialize_started');
+
     const data = await initializePaystackTransaction({
       email,
       amount: Number(amount),
@@ -103,10 +112,29 @@ export const initializePayment = async (req: AuthenticatedRequest, res: Response
         : `${process.env.FRONTEND_URL}/payment-success`),
       metadata,
     });
-    log('Paystack initialize response:', data);
+
+    log.info({
+      userId,
+      courseId: course_id,
+      reference: data.reference || reference,
+      amount: Number(amount),
+      currency: currency || 'NGN',
+      provider: 'paystack',
+      hasAuthorizationUrl: Boolean(data.authorizationUrl),
+    }, 'payment.initialize_succeeded');
+
     res.json(data);
   } catch (err: any) {
-    console.error('Paystack initialize error:', err.response?.data || err.message);
+    log.error({
+      err,
+      userId,
+      courseId: course_id,
+      reference,
+      amount: Number(amount),
+      currency: currency || 'NGN',
+      provider: 'paystack',
+      providerError: err.response?.data,
+    }, 'payment.initialize_failed');
     res.status(500).json({ error: 'Payment initialization failed' });
   }
 };

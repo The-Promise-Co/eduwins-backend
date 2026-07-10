@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import { BrevoClient } from '@getbrevo/brevo';
 import fs from 'fs';
 import path from 'path';
+import logger from './logger';
 
 /**
  * Email Options Interface
@@ -33,7 +34,7 @@ class BrevoProvider implements EmailProvider {
         apiKey: process.env.BREVO_API_KEY || '',
       });
     } catch (err) {
-      console.warn('⚠️ Brevo SDK initialization failed. Ensure @getbrevo/brevo is installed correctly.');
+      logger.warn({ err }, 'email.brevo_init_failed');
     }
   }
 
@@ -117,7 +118,7 @@ export class EmailService {
     const filePath = path.join(this.templatesPath, `${templateName}.html`);
 
     if (!fs.existsSync(filePath)) {
-      console.error(`❌ Template not found: ${filePath}`);
+      logger.error({ templateName, filePath }, 'email.template_not_found');
       return '';
     }
 
@@ -140,7 +141,7 @@ export class EmailService {
     const provider = (process.env.EMAIL_PROVIDER || 'brevo').toLowerCase();
 
     if (!options.to) {
-      console.warn('⚠️ Recipient email missing — send skipped');
+      logger.warn({ subject: options.subject }, 'email.recipient_missing');
       return;
     }
 
@@ -148,26 +149,22 @@ export class EmailService {
       const response = await this.provider.send(options);
 
       if (isDev) {
-        console.log('✅ [DEV] Email sent successfully:', {
+        logger.debug({
           provider,
           to: options.to,
           subject: options.subject,
           from: options.from || process.env.EMAIL_FROM,
           providerResponse: response,
-        });
+        }, 'email.send_succeeded');
       }
     } catch (error: any) {
-      if (isDev) {
-        console.error('❌ [DEV] Email send FAILED:', {
-          provider,
-          to: options.to,
-          subject: options.subject,
-          error: error.message,
-          details: error.response?.data ?? error.response ?? null,
-        });
-      } else {
-        console.error('⚠️ Email service failed:', error.message);
-      }
+      logger.error({
+        err: error,
+        provider,
+        to: options.to,
+        subject: options.subject,
+        providerError: error.response?.data ?? error.response ?? null,
+      }, 'email.send_failed');
       throw error; // re-throw so callers know the send failed
     }
   }
@@ -179,7 +176,7 @@ export class EmailService {
     const html = this.loadTemplate('verification', { otp });
 
     if (!html) {
-      console.error('❌ Failed to load verification template');
+      logger.error({ templateName: 'verification' }, 'email.template_load_failed');
       // Fallback if template is missing
       await this.sendEmail({
         to: email,
@@ -206,7 +203,7 @@ export class EmailService {
     });
 
     if (!html) {
-      console.error('❌ Failed to load welcome template');
+      logger.error({ templateName: 'welcome' }, 'email.template_load_failed');
       return;
     }
 
@@ -224,7 +221,7 @@ export class EmailService {
     const html = this.loadTemplate('password_reset', { resetUrl });
 
     if (!html) {
-      console.error('❌ Failed to load password_reset template');
+      logger.error({ templateName: 'password_reset' }, 'email.template_load_failed');
       // Fallback if template is missing
       await this.sendEmail({
         to: email,
@@ -248,7 +245,7 @@ export class EmailService {
     const html = this.loadTemplate('otp', { otp });
 
     if (!html) {
-      console.error('❌ Failed to load OTP template');
+      logger.error({ templateName: 'otp' }, 'email.template_load_failed');
       await this.sendEmail({
         to: email,
         subject: 'EduWins - Two-Factor Authentication OTP',
@@ -261,6 +258,36 @@ export class EmailService {
       to: email,
       subject: 'EduWins - Two-Factor Authentication OTP',
       html,
+    });
+  }
+
+  async sendBookingRequestEmail(email: string, data: Record<string, string>): Promise<void> {
+    const html = this.loadTemplate('booking_request', data);
+
+    await this.sendEmail({
+      to: email,
+      subject: 'New booking request on Eduwins',
+      html: html || `
+        <h2>New booking request</h2>
+        <p>${data.parentName} requested a session.</p>
+        <p>${data.sessionDate} | ${data.sessionTime}</p>
+        <p><a href="${data.ctaUrl}">View request</a></p>
+      `,
+    });
+  }
+
+  async sendBookingStatusEmail(email: string, data: Record<string, string>): Promise<void> {
+    const html = this.loadTemplate('booking_status', data);
+
+    await this.sendEmail({
+      to: email,
+      subject: `Your Eduwins booking request was ${data.status}`,
+      html: html || `
+        <h2>Booking request ${data.status}</h2>
+        <p>Your tutor has ${data.status} your booking request.</p>
+        <p>${data.sessionDate} | ${data.sessionTime}</p>
+        <p><a href="${data.ctaUrl}">View details</a></p>
+      `,
     });
   }
 }

@@ -5,6 +5,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { attachTeacherNames } from './attachTeacherNames';
 import { initializePaystackTransaction } from '../paystack/initializePayment';
 import { buildProgressSummary } from './progress';
+import logger from '../../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -122,7 +123,7 @@ export const enrollCourse = async (req: AuthenticatedRequest, res: Response) => 
       access_code: payment.access_code,
     });
   } catch (err: any) {
-    console.error('Enroll course error:', err);
+    (req.log || logger).error({ err, courseId: req.params.id, userId: req.user.id }, 'course.enroll_failed');
     res.status(500).json({ error: 'Failed to enroll in course' });
   }
 };
@@ -186,7 +187,7 @@ export const getEnrolledCourses = async (req: AuthenticatedRequest, res: Respons
       },
     });
   } catch (err: any) {
-    console.error('Get enrolled courses error:', err);
+    (req.log || logger).error({ err, userId: req.user.id, query: req.query }, 'course.enrolled_list_failed');
     res.status(500).json({ error: 'Failed to fetch enrolled courses' });
   }
 };

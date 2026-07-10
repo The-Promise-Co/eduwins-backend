@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { db } from '../../../database/db';
 import { courseLessons } from '../../../database/schema';
 import { eq } from 'drizzle-orm';
+import logger from '../../../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -29,7 +30,7 @@ export const addLesson = async (req: AuthenticatedRequest, res: Response) => {
 
     res.status(201).json(newLesson);
   } catch (err: any) {
-    console.error('Add lesson error:', err);
+    (req.log || logger).error({ err, moduleId: req.params.moduleId, userId: req.user.id }, 'course.lesson_add_failed');
     res.status(500).json({ error: 'Failed to add lesson' });
   }
 };
@@ -54,7 +55,7 @@ export const updateLesson = async (req: AuthenticatedRequest, res: Response) => 
 
     res.status(200).json(updated);
   } catch (err: any) {
-    console.error('Update lesson error:', err);
+    (req.log || logger).error({ err, lessonId: req.params.lessonId, userId: req.user.id }, 'course.lesson_update_failed');
     res.status(500).json({ error: 'Failed to update lesson' });
   }
 };
@@ -74,7 +75,7 @@ export const deleteLesson = async (req: AuthenticatedRequest, res: Response) => 
 
     res.status(200).json({ message: 'Lesson deleted successfully', deleted });
   } catch (err: any) {
-    console.error('Delete lesson error:', err);
+    (req.log || logger).error({ err, lessonId: req.params.lessonId, userId: req.user.id }, 'course.lesson_delete_failed');
     res.status(500).json({ error: 'Failed to delete lesson' });
   }
 };

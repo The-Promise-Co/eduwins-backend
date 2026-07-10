@@ -1,6 +1,7 @@
 import { db } from '../database/db';
 import { welfareFunds } from '../database/schema';
 import { eq, sql } from 'drizzle-orm';
+import logger from './logger';
 
 export const calculateTotalWelfareFund = async (teacherId: string): Promise<number> => {
   try {
@@ -13,7 +14,7 @@ export const calculateTotalWelfareFund = async (teacherId: string): Promise<numb
     const total = results[0]?.total || 0;
     return parseFloat(total.toString());
   } catch (err) {
-    console.error('Error calculating welfare fund:', err);
+    logger.error({ err, teacherId }, 'welfare.calculate_total_failed');
     return 0;
   }
 };

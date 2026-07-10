@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { db } from '../database/db';
 import { subjects } from '../database/schema';
 import { eq } from 'drizzle-orm';
+import logger from '../utils/logger';
 
 /**
  * GET /api/subjects
@@ -16,7 +17,7 @@ export const getPublicSubjects = async (req: Request, res: Response) => {
 
     res.json(activeSubjects);
   } catch (err: any) {
-    console.error('Error fetching subjects:', err);
+    (req.log || logger).error({ err }, 'subject.list_failed');
     res.status(500).json({ error: 'Failed to fetch subjects: ' + err.message });
   }
 };
