@@ -1,18 +1,14 @@
-import { db } from '../database/db';
-import { welfareFunds } from '../database/schema';
-import { eq, sql } from 'drizzle-orm';
+import { ensureWallet } from '../services/walletService';
 import logger from './logger';
 
+/**
+ * Teacher welfare balance — read from the welfare WALLET, the single source
+ * of truth. (The legacy welfare_funds ledger is no longer consulted.)
+ */
 export const calculateTotalWelfareFund = async (teacherId: string): Promise<number> => {
   try {
-    const results = await db.select({
-      total: sql<number>`sum(${welfareFunds.amount})`,
-    })
-      .from(welfareFunds)
-      .where(eq(welfareFunds.teacherId, teacherId));
-
-    const total = results[0]?.total || 0;
-    return parseFloat(total.toString());
+    const wallet = await ensureWallet('user', teacherId, 'welfare');
+    return parseFloat(wallet?.balance?.toString() || '0');
   } catch (err) {
     logger.error({ err, teacherId }, 'welfare.calculate_total_failed');
     return 0;

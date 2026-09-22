@@ -2,6 +2,7 @@ import express from 'express';
 import authenticateToken from '../middleware/auth';
 import {
   initializePayment,
+  getBookingQuote,
   verifyPayment,
   paystackWebhook,
 } from '../controllers/paystack';
@@ -13,6 +14,12 @@ const router = express.Router();
  * Initialize a payment session
  */
 router.post('/initialize', authenticateToken, initializePayment as any);
+
+/**
+ * GET /api/paystack/quote?booking_id=
+ * Fee breakdown (session total + processing fee + charge total)
+ */
+router.get('/quote', authenticateToken, getBookingQuote as any);
 
 /**
  * GET /api/paystack/verify/:reference

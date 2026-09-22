@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../database/db';
 import { users, teacherProfiles, teacherCertifications, teacherEducations } from '../database/schema';
-import { eq, sql, ilike, or, and } from 'drizzle-orm';
+import { eq, sql, ilike, or, and, ne } from 'drizzle-orm';
 import logger from '../utils/logger';
 
 export const getTeacherById = async (req: Request, res: Response) => {
@@ -34,12 +34,13 @@ export const getTeacherById = async (req: Request, res: Response) => {
       isVerified: teacherProfiles.isVerified,
       educationLevels: teacherProfiles.educationLevels,
       sessionFormats: teacherProfiles.sessionFormats,
-      sessionDurations: teacherProfiles.sessionDurations,
       deliveryModes: teacherProfiles.deliveryModes,
       availability: teacherProfiles.availability,
       availabilityConfig: teacherProfiles.availabilityConfig,
-      timezone: teacherProfiles.timezone,
-      location: sql<string>`''`,
+      locationState: teacherProfiles.locationState,
+      locationLga: teacherProfiles.locationLga,
+      locationArea: teacherProfiles.locationArea,
+      location: sql<string>`COALESCE(${teacherProfiles.locationArea}, ${teacherProfiles.locationLga}, '')`,
       createdAt: teacherProfiles.createdAt,
       updatedAt: teacherProfiles.updatedAt,
     })
@@ -66,7 +67,7 @@ export const getTeacherById = async (req: Request, res: Response) => {
 
 export const searchTeachers = async (req: Request, res: Response) => {
   try {
-    const { subject, lga, maxRate } = req.query;
+    const { subject, lga, maxRate, locationState, locationLga } = req.query;
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const offset = (page - 1) * limit;
@@ -74,7 +75,7 @@ export const searchTeachers = async (req: Request, res: Response) => {
     const conditions = [
       eq(users.emailVerified, true),
       eq(users.role, 'teacher'),
-      // sql`${teacherProfiles.photoUrl} IS NOT NULL`,
+      eq(users.status, 'active'),
     ];
 
     if (subject && typeof subject === 'string') {
@@ -90,6 +91,18 @@ export const searchTeachers = async (req: Request, res: Response) => {
       }
     }
 
+    if (locationState && typeof locationState === 'string') {
+      conditions.push(eq(teacherProfiles.locationState, locationState));
+    }
+
+    if (locationLga && typeof locationLga === 'string') {
+      conditions.push(eq(teacherProfiles.locationLga, locationLga));
+    }
+
+    if (lga && typeof lga === 'string' && !locationLga) {
+      conditions.push(ilike(teacherProfiles.locationLga, `%${lga}%`));
+    }
+
     const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
 
     const [data, totalResult] = await Promise.all([
@@ -103,7 +116,10 @@ export const searchTeachers = async (req: Request, res: Response) => {
         ratingAvg: teacherProfiles.ratingAvg,
         students: teacherProfiles.totalSessions,
         bio: teacherProfiles.bio,
-        location: sql<string>`''`,
+        locationState: teacherProfiles.locationState,
+        locationLga: teacherProfiles.locationLga,
+        locationArea: teacherProfiles.locationArea,
+        location: sql<string>`COALESCE(${teacherProfiles.locationArea}, ${teacherProfiles.locationLga}, '')`,
       })
         .from(teacherProfiles)
         .innerJoin(users, eq(teacherProfiles.userId, users.id))
@@ -131,5 +147,32 @@ export const searchTeachers = async (req: Request, res: Response) => {
   } catch (err: any) {
     (req.log || logger).error({ err, query: req.query }, 'teacher.search_failed');
     res.status(500).json({ error: 'Failed to search teachers' });
+  }
+};
+
+// ── Get unique areas for a given state + LGA ────────────────────────
+export const getTeacherAreas = async (req: Request, res: Response) => {
+  try {
+    const { state, lga } = req.query;
+
+    if (!state || !lga) {
+      return res.status(400).json({ error: 'state and lga are required' });
+    }
+
+    const rows = await db.selectDistinct({ area: teacherProfiles.locationArea })
+      .from(teacherProfiles)
+      .where(
+        and(
+          eq(teacherProfiles.locationState, state as string),
+          eq(teacherProfiles.locationLga, lga as string),
+          sql`${teacherProfiles.locationArea} IS NOT NULL AND ${teacherProfiles.locationArea} != ''`
+        )
+      );
+
+    const areas = rows.map((r) => r.area).filter(Boolean) as string[];
+    res.status(200).json({ areas });
+  } catch (err: any) {
+    (req.log || logger).error({ err, query: req.query }, 'teacher.get_areas_failed');
+    res.status(500).json({ error: 'Failed to fetch areas' });
   }
 };

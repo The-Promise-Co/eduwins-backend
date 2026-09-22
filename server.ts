@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import http from 'http';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -31,11 +32,18 @@ import teacherRoutes from './routes/teachers';
 import walletRoutes from './routes/wallets';
 import bookingRoutes from './routes/bookings';
 import notificationRoutes from './routes/notifications';
+import chatRoutes from './routes/chat';
+import adminAuthRoutes from './routes/adminAuth';
+import locationRoutes from './routes/locations';
+import { livekitRouter, sessionRouter } from './routes/sessions';
 
 import authenticateToken from './middleware/auth';
 import { initRedis } from './config/redis';
+import { initSocket } from './config/socket';
 import logger from './utils/logger';
 import { requestLogger } from './middleware/requestLogger';
+import { startBookingExpiryScheduler } from './services/bookingExpiryScheduler';
+import { startSessionCompletionScheduler } from './services/sessionCompletionScheduler';
 
 const app = express();
 // initRedis();
@@ -152,6 +160,11 @@ app.use('/api/teachers', teacherRoutes);
 app.use('/api/wallets', walletRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/locations', locationRoutes);
+app.use('/api/sessions', sessionRouter);
+app.use('/api/livekit', livekitRouter);
+app.use('/api/admin/auth', adminAuthRoutes);
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'Backend is running', timestamp: new Date() });
@@ -179,6 +192,13 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 
 logger.info({ port: PORT, host: HOST, publicApiUrl: PUBLIC_API_URL, isProduction }, 'server.starting');
 
-app.listen(PORT, HOST, () => {
+startBookingExpiryScheduler();
+startSessionCompletionScheduler();
+
+// Create HTTP server and attach Socket.IO
+const httpServer = http.createServer(app);
+initSocket(httpServer);
+
+httpServer.listen(PORT, HOST, () => {
   logger.info({ port: PORT, host: HOST, publicApiUrl: PUBLIC_API_URL }, 'server.started');
 });

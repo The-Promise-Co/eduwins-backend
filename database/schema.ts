@@ -1,5 +1,6 @@
 export * from './schema/system';
 export * from './schema/users';
+export * from './schema/adminUsers';
 export * from './schema/teacherProfiles';
 export * from './schema/lessons';
 export * from './schema/financials';
@@ -9,3 +10,5 @@ export * from './schema/documents';
 export * from './schema/credentials';
 export * from './schema/config';
 export * from './schema/wallets';
+export * from './schema/chat';
+export * from './schema/sessions';

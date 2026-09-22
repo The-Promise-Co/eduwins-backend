@@ -4,10 +4,10 @@ import { db } from '../database/db';
 import {
   withdrawals,
   notifications,
-  earnings,
 } from '../database/schema';
 import { eq, and, or, sql, desc } from 'drizzle-orm';
 import { calculateTotalWelfareFund } from '../utils/welfareCalculator';
+import { creditWallet, debitWallet, ensureUserWallets, getUserWallets } from '../services/walletService';
 import dotenv from 'dotenv';
 import logger from '../utils/logger';
 
@@ -39,12 +39,15 @@ export const getAvailableBalance = async (req: AuthenticatedRequest, res: Respon
   try {
     const teacherId = req.user.id;
 
-    // Fetch teacher earnings
-    const teacherEarnings = await db.query.earnings.findFirst({
-      where: eq(earnings.teacherId, teacherId),
-    });
+    // Single source of truth: the main wallet balance. Welfare lives in its
+    // own wallet (reported for display, never subtracted here).
+    await ensureUserWallets(teacherId, 'teacher');
+    const walletRows = await getUserWallets(teacherId);
+    const mainBalance = parseFloat(
+      walletRows.find((w) => w.walletType === 'main')?.balance?.toString() || '0',
+    );
 
-    // Calculate total welfare fund
+    // Welfare balance (informational — held in a separate wallet)
     const totalWelfareFund = await calculateTotalWelfareFund(teacherId);
 
     // Fetch pending/processing withdrawals
@@ -57,20 +60,15 @@ export const getAvailableBalance = async (req: AuthenticatedRequest, res: Respon
         or(eq(withdrawals.status, 'pending'), eq(withdrawals.status, 'processing'))
       ));
 
-    const reservedAmount = pendingWithdrawalSum[0]?.total || 0;
-
-    // Calculate total earnings
-    const totalEarnings = parseFloat(teacherEarnings?.total?.toString() || '0');
-    const totalAcquired = parseFloat(teacherEarnings?.acquiredFromLessons?.toString() || '0');
+    const reservedAmount = parseFloat(pendingWithdrawalSum[0]?.total?.toString() || '0');
 
     // Calculate accessible balance
-    const deductions = totalWelfareFund;
-    const accessibleBalance = Math.max(0, totalAcquired - deductions - reservedAmount);
+    const accessibleBalance = Math.max(0, mainBalance - reservedAmount);
 
     res.json({
       success: true,
-      totalEarnings,
-      totalAcquired,
+      totalEarnings: mainBalance,
+      totalAcquired: mainBalance,
       deductions: {
         welfareFund: totalWelfareFund,
         reserved: reservedAmount,
@@ -104,13 +102,21 @@ export const initiateWithdrawal = async (req: AuthenticatedRequest, res: Respons
       return res.status(400).json({ error: 'Amount outside allowed range' });
     }
 
-    // Get available balance (re-calculating for security)
-    const teacherEarnings = await db.query.earnings.findFirst({
-      where: eq(earnings.teacherId, teacherId),
-    });
-    const totalWelfareFund = await calculateTotalWelfareFund(teacherId);
-    const totalAcquired = parseFloat(teacherEarnings?.acquiredFromLessons?.toString() || '0');
-    const accessibleBalance = Math.max(0, totalAcquired - totalWelfareFund);
+    // Get available balance (re-calculating for security): main wallet minus
+    // withdrawals already in flight. Welfare is a separate wallet already.
+    await ensureUserWallets(teacherId, 'teacher');
+    const walletRows = await getUserWallets(teacherId);
+    const mainBalance = parseFloat(
+      walletRows.find((w) => w.walletType === 'main')?.balance?.toString() || '0',
+    );
+    const pendingSum = await db.select({ total: sql<number>`sum(${withdrawals.amount})` })
+      .from(withdrawals)
+      .where(and(
+        eq(withdrawals.teacherId, teacherId),
+        or(eq(withdrawals.status, 'pending'), eq(withdrawals.status, 'processing')),
+      ));
+    const reserved = parseFloat(pendingSum[0]?.total?.toString() || '0');
+    const accessibleBalance = Math.max(0, mainBalance - reserved);
 
     if (amount > accessibleBalance) {
       return res.status(400).json({
@@ -156,14 +162,21 @@ export const initiateWithdrawal = async (req: AuthenticatedRequest, res: Respons
       createdAt: new Date(),
     };
 
-    await db.insert(withdrawals).values(withdrawalData);
-
-    // Deduct from earnings (reserve funds)
-    await db.update(earnings)
-      .set({
-        acquiredFromLessons: (totalAcquired - amount).toString(),
-      })
-      .where(eq(earnings.teacherId, teacherId));
+    // Reserve funds: record the request and debit the main wallet atomically.
+    await db.transaction(async (tx) => {
+      await tx.insert(withdrawals).values(withdrawalData);
+      await debitWallet({
+        tx,
+        ownerId: teacherId,
+        walletType: 'main',
+        amount,
+        type: 'withdrawal_request',
+        referenceType: 'withdrawal',
+        referenceId: withdrawalId,
+        description: 'Withdrawal request reserved',
+        metadata: { withdrawalId, netAmount },
+      });
+    });
 
     // Notify user
     await db.insert(notifications).values({
@@ -253,13 +266,18 @@ export const processWithdrawal = async (req: Request, res: Response) => {
         failureReason: paymentError.response?.data?.message || paymentError.message,
       }).where(eq(withdrawals.id, withdrawalId));
 
-      // Refund
-      const currentEarnings = await db.query.earnings.findFirst({ where: eq(earnings.teacherId, teacherId) });
+      // Refund the reservation back to the main wallet.
       const refundAmount = parseFloat(withdrawal.amount?.toString() || '0');
-
-      await db.update(earnings).set({
-        acquiredFromLessons: (parseFloat(currentEarnings?.acquiredFromLessons?.toString() || '0') + refundAmount).toString()
-      }).where(eq(earnings.teacherId, teacherId));
+      await creditWallet({
+        ownerId: teacherId,
+        walletType: 'main',
+        amount: refundAmount,
+        type: 'withdrawal_refund',
+        referenceType: 'withdrawal',
+        referenceId: withdrawalId,
+        description: 'Withdrawal transfer failure refund',
+        metadata: { withdrawalId },
+      });
 
       res.status(500).json({ error: 'Transfer failed' });
     }
@@ -293,7 +311,7 @@ export const cancelWithdrawal = async (req: AuthenticatedRequest, res: Response)
     const { withdrawalId } = req.params;
 
     const withdrawal = await db.query.withdrawals.findFirst({
-      where: eq(withdrawals.id, withdrawalId),
+      where: and(eq(withdrawals.id, withdrawalId), eq(withdrawals.teacherId, teacherId)),
     });
 
     if (!withdrawal || withdrawal.status !== 'pending') {
@@ -305,13 +323,18 @@ export const cancelWithdrawal = async (req: AuthenticatedRequest, res: Response)
       cancelledAt: new Date()
     }).where(eq(withdrawals.id, withdrawalId));
 
-    // Refund
-    const currentEarnings = await db.query.earnings.findFirst({ where: eq(earnings.teacherId, teacherId) });
+    // Refund the reservation back to the main wallet.
     const refundAmount = parseFloat(withdrawal.amount?.toString() || '0');
-
-    await db.update(earnings).set({
-      acquiredFromLessons: (parseFloat(currentEarnings?.acquiredFromLessons?.toString() || '0') + refundAmount).toString()
-    }).where(eq(earnings.teacherId, teacherId));
+    await creditWallet({
+      ownerId: teacherId,
+      walletType: 'main',
+      amount: refundAmount,
+      type: 'withdrawal_refund',
+      referenceType: 'withdrawal',
+      referenceId: withdrawalId,
+      description: 'Withdrawal cancellation refund',
+      metadata: { withdrawalId },
+    });
 
     res.json({ success: true, message: 'Withdrawal cancelled' });
   } catch (err) {

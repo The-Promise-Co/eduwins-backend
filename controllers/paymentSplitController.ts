@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
 import { db } from '../database/db';
-import { 
-  transactions, 
-  welfareFunds, 
+import {
+  transactions,
+  wallets,
+  walletTransactions,
 } from '../database/schema';
-import { eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { creditWallet, debitWallet, ensurePlatformWallet, ensureUserWallets, getUserWallets } from '../services/walletService';
 import logger from '../utils/logger';
 
@@ -90,16 +91,8 @@ export const processPaymentWithWelfareFund = async (req: Request, res: Response)
         metadata: { teacherId, parentId, grossAmount: numAmount, status },
       });
 
-      // Record welfare fund contribution
-      const welfareFundId = Math.random().toString(36).substring(2, 15);
-      await db.insert(welfareFunds).values({
-        id: welfareFundId,
-        teacherId,
-        month: new Date().toISOString().slice(0, 7),
-        amount: welfareFund.toString(),
-        status: 'locked',
-        createdAt: new Date(),
-      });
+      // The welfare wallet credit above IS the contribution record — the
+      // legacy welfare_funds ledger is no longer written.
     }
 
     return res.status(201).json({
@@ -120,16 +113,26 @@ export const getWelfareFund = async (req: Request, res: Response) => {
     await ensureUserWallets(teacherId, 'teacher');
     const walletRows = await getUserWallets(teacherId);
     const welfareWallet = walletRows.find((wallet) => wallet.walletType === 'welfare');
+    const balance = parseFloat(welfareWallet?.balance?.toString() || '0');
 
-    const contributions = await db.select()
-      .from(welfareFunds)
-      .where(eq(welfareFunds.teacherId, teacherId))
-      .orderBy(sql`${welfareFunds.createdAt} DESC`);
+    // Contribution history comes from the welfare wallet's own ledger.
+    // Shape matches the welfare page contract ({date, lesson, total}).
+    const history = await db.select()
+      .from(walletTransactions)
+      .where(eq(walletTransactions.walletId, welfareWallet?.id || ''))
+      .orderBy(desc(walletTransactions.createdAt))
+      .limit(100);
 
     res.status(200).json({
       teacherId,
-      welfare_balance: welfareWallet?.balance || '0',
-      contributions,
+      total_accumulated: balance,
+      available_balance: balance,
+      locked_balance: 0,
+      contributions: history.map((t) => ({
+        date: t.createdAt,
+        lesson: (t.description as string) || (t.type as string),
+        total: parseFloat(t.amount?.toString() || '0') * (t.direction === 'debit' ? -1 : 1),
+      })),
     });
   } catch (err: any) {
     (req.log || logger).error({ err, teacherId }, 'payment_split.welfare_get_failed');
@@ -137,30 +140,19 @@ export const getWelfareFund = async (req: Request, res: Response) => {
   }
 };
 
-export const unlockWelfareFunds = async (req: Request, res: Response) => {
-  try {
-    // Logic to move 'locked' funds to 'available' for contribution records.
-    // We'll mark all locked welfare_funds as 'available'
-    await db.update(welfareFunds)
-      .set({ status: 'available' })
-      .where(eq(welfareFunds.status, 'locked'));
-
-    res.status(200).json({ message: 'Welfare funds unlocked successfully' });
-  } catch (err: any) {
-    (req.log || logger).error({ err }, 'payment_split.welfare_unlock_failed');
-    res.status(500).json({ error: 'Failed to unlock welfare funds' });
-  }
-};
-
 export const getCentralWelfareAnalytics = async (req: Request, res: Response) => {
   try {
     const results = await db.select({
-      totalAccumulated: sql<number>`sum(${welfareFunds.amount})`,
-      totalAvailable: sql<number>`sum(case when ${welfareFunds.status} = 'available' then ${welfareFunds.amount} else 0 end)`,
-      totalLocked: sql<number>`sum(case when ${welfareFunds.status} = 'locked' then ${welfareFunds.amount} else 0 end)`,
-    }).from(welfareFunds);
+      totalAccumulated: sql<number>`coalesce(sum(${wallets.balance}), 0)`,
+    })
+      .from(wallets)
+      .where(and(eq(wallets.walletType, 'welfare'), eq(wallets.ownerType, 'user')));
 
-    res.json(results[0]);
+    res.json({
+      totalAccumulated: parseFloat(results[0]?.totalAccumulated?.toString() || '0'),
+      totalAvailable: parseFloat(results[0]?.totalAccumulated?.toString() || '0'),
+      totalLocked: 0,
+    });
   } catch (err: any) {
     (req.log || logger).error({ err }, 'payment_split.welfare_analytics_failed');
     res.status(500).json({ error: 'Could not calculate welfare analytics' });
@@ -172,6 +164,10 @@ export const withdrawFromWelfareFund = async (req: Request, res: Response) => {
   const { amount } = req.body;
 
   try {
+    const requesterId = (req as unknown as { user?: { id: string } }).user?.id;
+    if (!requesterId || requesterId !== teacherId) {
+      return res.status(403).json({ error: 'You can only withdraw from your own welfare fund' });
+    }
     if (!amount || parseFloat(amount.toString()) <= 0) {
       return res.status(400).json({ error: 'Invalid withdrawal amount' });
     }
@@ -191,12 +187,14 @@ export const withdrawFromWelfareFund = async (req: Request, res: Response) => {
       });
     }
 
+    const withdrawalRef = `welfare-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     await debitWallet({
       ownerId: teacherId,
       walletType: 'welfare',
       amount: numAmount,
       type: 'welfare_withdrawal',
       referenceType: 'withdrawal',
+      referenceId: withdrawalRef,
       description: 'Welfare withdrawal debited',
       metadata: { status: 'completed' },
     });

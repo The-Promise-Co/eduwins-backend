@@ -51,7 +51,7 @@ export const teacherProfiles = pgTable('teacher_profiles', {
         .primaryKey()
         .references(() => users.id),
 
-    isApproved: boolean('is_approved').default(false).notNull(),
+    isAdminApproved: boolean('is_admin_approved').default(false).notNull(),
     isVerified: boolean('is_verified').default(false).notNull(),
     idVerified: boolean('id_verified').default(false).notNull(),
     searchRank: varchar('search_rank', { length: 50 }).default('normal').notNull(),
@@ -75,6 +75,12 @@ export const teacherProfiles = pgTable('teacher_profiles', {
         .array()
         .default(sql`ARRAY[]::text[]`)
         .notNull(),
+
+    // ── Location ─────────────────────────────────────────────────────────
+
+    locationState: varchar('location_state', { length: 100 }),
+    locationLga: varchar('location_lga', { length: 100 }),
+    locationArea: varchar('location_area', { length: 255 }),
 
     // ── Qualifications ───────────────────────────────────────────────────────
 
@@ -103,12 +109,6 @@ export const teacherProfiles = pgTable('teacher_profiles', {
         .default(sql`ARRAY[]::session_format[]`)
         .notNull(),
 
-    // Duration options offered, stored in minutes — e.g. [30, 45, 60, 90]
-    sessionDurations: integer('session_durations')
-        .array()
-        .default(sql`ARRAY[]::integer[]`)
-        .notNull(),
-
     deliveryModes: deliveryModeEnum('delivery_modes')
         .array()
         .default(sql`ARRAY[]::delivery_mode[]`)
@@ -121,23 +121,10 @@ export const teacherProfiles = pgTable('teacher_profiles', {
     availabilityConfig: jsonb('availability_config')
         .$type<Record<string, { from: string; to: string }[]> | null>(),
 
-    // IANA timezone string — e.g. 'Africa/Lagos', 'Europe/London'
-    timezone: varchar('timezone', { length: 100 }),
-
     // ── Booking rules ────────────────────────────────────────────────────────
 
     // Minimum notice a student must give before booking (hours)
     minNoticeHours: integer('min_notice_hours').default(24).notNull(),
-
-    // Gap between consecutive sessions (minutes)
-    bufferMinutes: integer('buffer_minutes').default(0).notNull(),
-
-    // Hard caps — null means no limit
-    maxSessionsPerWeek: integer('max_sessions_per_week'),
-    maxStudentsPerDay: integer('max_students_per_day'),
-
-    // How far in advance a student can cancel without penalty (hours)
-    cancellationWindowHours: integer('cancellation_window_hours').default(24).notNull(),
 
     // ── Notifications ────────────────────────────────────────────────────────
 

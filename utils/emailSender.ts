@@ -290,6 +290,22 @@ export class EmailService {
       `,
     });
   }
+
+  async sendBookingCancelledEmail(email: string, data: Record<string, string>): Promise<void> {
+    const html = this.loadTemplate('booking_cancelled', data);
+
+    await this.sendEmail({
+      to: email,
+      subject: `Your Eduwins booking has been cancelled`,
+      html: html || `
+        <h2>Booking cancelled</h2>
+        <p>${data.cancelledByName} (${data.cancelledByRole}) has cancelled the booking.</p>
+        <p>Reason: ${data.cancelReason}</p>
+        <p>${data.sessionDate} | ${data.sessionTime}</p>
+        <p><a href="${data.ctaUrl}">View bookings</a></p>
+      `,
+    });
+  }
 }
 
 // Export singleton instance

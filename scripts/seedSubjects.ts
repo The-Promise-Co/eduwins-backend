@@ -1,43 +1,112 @@
 import 'dotenv/config';
-import { db } from '../database/db';
+import { randomUUID } from 'crypto';
+import { eq } from 'drizzle-orm';
+import { db, pool } from '../database/db';
 import { subjects } from '../database/schema';
 
-const defaultSubjects = [
-  'Mathematics', 'English', 'Physics', 'Chemistry',
-  'Biology', 'Geography', 'History', 'Computer Science', 'Economics',
-  'Further Mathematics', 'Civic Education', 'Government', 'Literature',
+const desiredSubjects = [
+  'Computer Science',
+  'Creative Art',
+  'Literature in English',
+  'Nigerian History',
+  'Government',
+  'Christian Religious Studies',
+  'Nigerian Languages',
+  'Visual Arts',
+  'Origami',
+  'Financial Accounting',
+  'Commerce',
+  'Economics',
+  'Foods & Nutrition',
+  'Agricultural Science',
+  'Further Mathematics',
+  'Geography',
+  'Physical & Health Education',
+  'General Mathematics',
+  'Civic Education',
+  'Digital Technologies',
+  'Arabic Language',
+  'Technical Studies',
+  'Arts',
 ];
 
-async function seedSubjects() {
-  console.log('🌱 Checking and seeding subjects...');
+const subjectRenames: Record<string, string> = {
+  Accounting: 'Financial Accounting',
+  'Food and Nutrition': 'Foods & Nutrition',
+  History: 'Nigerian History',
+  Mathematics: 'General Mathematics',
+  'Technical Drawing': 'Technical Studies',
+};
 
-  let addedCount = 0;
+async function renameExistingSubjects() {
+  let renamedCount = 0;
 
-  for (const subjectName of defaultSubjects) {
-    try {
-      // Basic insert, relying on standard ID generation or passing minimal fields
-      const uniqueId = `subj_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      
-      await db.insert(subjects).values({
-        id: uniqueId,
-        name: subjectName,
+  for (const [fromName, toName] of Object.entries(subjectRenames)) {
+    const existingTarget = await db.query.subjects.findFirst({
+      where: eq(subjects.name, toName),
+    });
+
+    if (existingTarget) {
+      console.log(`Skipping rename "${fromName}" -> "${toName}" because target already exists.`);
+      continue;
+    }
+
+    const [renamed] = await db
+      .update(subjects)
+      .set({
+        name: toName,
         isActive: true,
-      }).onConflictDoNothing({ target: subjects.name });
+        updatedAt: new Date(),
+      })
+      .where(eq(subjects.name, fromName))
+      .returning({ name: subjects.name });
 
-      addedCount++;
-    } catch (error: any) {
-      // Ignore unique constraint violations if onConflictDoNothing isn't supported smoothly
-      if (!error.message.includes('duplicate key value')) {
-        console.error(`❌ Failed to insert ${subjectName}:`, error.message);
-      }
+    if (renamed) {
+      renamedCount += 1;
+      console.log(`Renamed "${fromName}" -> "${toName}".`);
     }
   }
 
-  console.log(`✅ Subject seeding processed. Inserted/Ensured ${addedCount} subjects.`);
-  process.exit(0);
+  return renamedCount;
 }
 
-seedSubjects().catch((err) => {
-  console.error('Fatal Error during seeding:', err);
-  process.exit(1);
-});
+async function insertMissingSubjects() {
+  let insertedCount = 0;
+
+  for (const subjectName of desiredSubjects) {
+    const [inserted] = await db
+      .insert(subjects)
+      .values({
+        id: randomUUID(),
+        name: subjectName,
+        isActive: true,
+      })
+      .onConflictDoNothing({ target: subjects.name })
+      .returning({ name: subjects.name });
+
+    if (inserted) {
+      insertedCount += 1;
+      console.log(`Inserted "${subjectName}".`);
+    }
+  }
+
+  return insertedCount;
+}
+
+async function seedSubjects() {
+  console.log('Seeding subjects...');
+
+  const renamedCount = await renameExistingSubjects();
+  const insertedCount = await insertMissingSubjects();
+
+  console.log(`Done. Renamed ${renamedCount} subjects and inserted ${insertedCount} missing subjects.`);
+}
+
+seedSubjects()
+  .catch((error) => {
+    console.error('Subject seeding failed:', error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await pool.end();
+  });

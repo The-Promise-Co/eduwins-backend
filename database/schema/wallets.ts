@@ -5,6 +5,7 @@ import {
   timestamp,
   jsonb,
   uniqueIndex,
+  index,
 } from 'drizzle-orm/pg-core';
 import { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 import { users } from './users';
@@ -40,7 +41,12 @@ export const walletTransactions = pgTable('wallet_transactions', {
   description: varchar('description', { length: 500 }),
   metadata: jsonb('metadata'),
   createdAt: timestamp('created_at').defaultNow(),
-});
+}, (table) => ({
+  referenceIdx: index('wallet_transactions_reference_idx').on(
+    table.referenceType,
+    table.referenceId,
+  ),
+}));
 
 export type Wallet = InferSelectModel<typeof wallets>;
 export type NewWallet = InferInsertModel<typeof wallets>;

@@ -3,8 +3,8 @@ import authenticateToken from '../middleware/auth';
 import {
   processPaymentWithWelfareFund,
   getWelfareFund,
-  unlockWelfareFunds,
   getCentralWelfareAnalytics,
+  withdrawFromWelfareFund,
 } from '../controllers/paymentSplitController';
 
 const router = express.Router();
@@ -22,10 +22,10 @@ router.post('/process', authenticateToken, processPaymentWithWelfareFund as any)
 router.get('/welfare-fund/:teacherId', authenticateToken, getWelfareFund as any);
 
 /**
- * POST /api/payments/unlock-welfare
- * Admin route to unlock welfare funds
+ * POST /api/payments/welfare-fund/:teacherId/withdraw
+ * Teacher welfare withdrawal (this route was missing — the welfare page called it)
  */
-router.post('/unlock-welfare', authenticateToken, unlockWelfareFunds as any);
+router.post('/welfare-fund/:teacherId/withdraw', authenticateToken, withdrawFromWelfareFund as any);
 
 /**
  * GET /api/payments/welfare-analytics

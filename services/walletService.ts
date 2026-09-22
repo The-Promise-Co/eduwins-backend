@@ -17,6 +17,14 @@ type WalletMutationInput = {
   metadata?: Record<string, unknown>;
 };
 
+/** Drizzle transaction client (node-postgres). Passed through so multi-leg
+ *  writes (e.g. escrow settlement) are atomic. */
+export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+type TxInput = {
+  tx?: DbTx;
+};
+
 const id = (prefix: string) => `${prefix}-${Math.random().toString(36).substring(2, 15)}`;
 
 const walletIdFor = (ownerType: 'user' | 'platform', ownerId: string | null | undefined, walletType: WalletType) => {
@@ -24,15 +32,21 @@ const walletIdFor = (ownerType: 'user' | 'platform', ownerId: string | null | un
   return `wallet-${walletType}-${ownerId}`;
 };
 
-export const ensureWallet = async (ownerType: 'user' | 'platform', ownerId: string | null, walletType: WalletType) => {
+export const ensureWallet = async (
+  ownerType: 'user' | 'platform',
+  ownerId: string | null,
+  walletType: WalletType,
+  tx?: DbTx,
+) => {
+  const q = tx || db;
   const where = ownerType === 'platform'
     ? and(eq(wallets.ownerType, 'platform'), isNull(wallets.ownerId), eq(wallets.walletType, walletType))
     : and(eq(wallets.ownerType, 'user'), eq(wallets.ownerId, ownerId || ''), eq(wallets.walletType, walletType));
 
-  const existing = await db.query.wallets.findFirst({ where });
+  const existing = await q.query.wallets.findFirst({ where });
   if (existing) return existing;
 
-  const [created] = await db.insert(wallets).values({
+  const [created] = await q.insert(wallets).values({
     id: walletIdFor(ownerType, ownerId, walletType),
     ownerType,
     ownerId: ownerType === 'platform' ? null : ownerId,
@@ -47,7 +61,7 @@ export const ensureWallet = async (ownerType: 'user' | 'platform', ownerId: stri
     return created;
   }
 
-  return db.query.wallets.findFirst({ where });
+  return q.query.wallets.findFirst({ where });
 };
 
 export const ensureUserWallets = async (userId: string, role: string) => {
@@ -68,6 +82,25 @@ export const getUserWallets = async (userId: string) => {
   return db.select().from(wallets).where(and(eq(wallets.ownerType, 'user'), eq(wallets.ownerId, userId)));
 };
 
+/**
+ * All legs of one payout group (e.g. the three splits of a booking release),
+ * keyed by the shared reference. Doubles as the settlement idempotency guard.
+ */
+export const getTransactionsByReference = async (
+  referenceType: string,
+  referenceId: string,
+  tx?: DbTx,
+) => {
+  const q = tx || db;
+  return q.select()
+    .from(walletTransactions)
+    .where(and(
+      eq(walletTransactions.referenceType, referenceType),
+      eq(walletTransactions.referenceId, referenceId),
+    ))
+    .orderBy(desc(walletTransactions.createdAt));
+};
+
 export const getWalletTransactions = async (walletId: string, userId?: string) => {
   const wallet = await db.query.wallets.findFirst({ where: eq(wallets.id, walletId) });
   if (!wallet || (userId && wallet.ownerId !== userId)) return null;
@@ -80,21 +113,22 @@ export const getWalletTransactions = async (walletId: string, userId?: string) =
   return { wallet, transactions };
 };
 
-export const creditWallet = async (input: WalletMutationInput) => {
+export const creditWallet = async (input: WalletMutationInput & TxInput) => {
   if (input.amount <= 0) throw new Error('Amount must be greater than 0');
 
+  const q = input.tx || db;
   const ownerType = input.ownerType || 'user';
-  const wallet = await ensureWallet(ownerType, input.ownerId || null, input.walletType);
+  const wallet = await ensureWallet(ownerType, input.ownerId || null, input.walletType, input.tx);
   if (!wallet) throw new Error('Wallet not found');
 
   const balanceBefore = parseFloat(wallet.balance?.toString() || '0');
   const balanceAfter = balanceBefore + input.amount;
 
-  await db.update(wallets)
+  await q.update(wallets)
     .set({ balance: balanceAfter.toString(), updatedAt: new Date() })
     .where(eq(wallets.id, wallet.id));
 
-  const [transaction] = await db.insert(walletTransactions).values({
+  const [transaction] = await q.insert(walletTransactions).values({
     id: id('wtx'),
     walletId: wallet.id,
     direction: 'credit',
@@ -125,11 +159,12 @@ export const creditWallet = async (input: WalletMutationInput) => {
   return transaction;
 };
 
-export const debitWallet = async (input: WalletMutationInput) => {
+export const debitWallet = async (input: WalletMutationInput & TxInput) => {
   if (input.amount <= 0) throw new Error('Amount must be greater than 0');
 
+  const q = input.tx || db;
   const ownerType = input.ownerType || 'user';
-  const wallet = await ensureWallet(ownerType, input.ownerId || null, input.walletType);
+  const wallet = await ensureWallet(ownerType, input.ownerId || null, input.walletType, input.tx);
   if (!wallet) throw new Error('Wallet not found');
 
   const balanceBefore = parseFloat(wallet.balance?.toString() || '0');
@@ -150,11 +185,11 @@ export const debitWallet = async (input: WalletMutationInput) => {
 
   const balanceAfter = balanceBefore - input.amount;
 
-  await db.update(wallets)
+  await q.update(wallets)
     .set({ balance: balanceAfter.toString(), updatedAt: new Date() })
     .where(eq(wallets.id, wallet.id));
 
-  const [transaction] = await db.insert(walletTransactions).values({
+  const [transaction] = await q.insert(walletTransactions).values({
     id: id('wtx'),
     walletId: wallet.id,
     direction: 'debit',

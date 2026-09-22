@@ -24,5 +24,15 @@ export const platformConfigs = pgTable('platform_configs', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const systemSettings = pgTable('system_settings', {
+  key: varchar('key', { length: 255 }).primaryKey(),
+  value: text('value').notNull(),
+  description: text('description'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 export type PlatformConfig = typeof platformConfigs.$inferSelect;
 export type NewPlatformConfig = typeof platformConfigs.$inferInsert;
+export type SystemSetting = typeof systemSettings.$inferSelect;
+export type NewSystemSetting = typeof systemSettings.$inferInsert;

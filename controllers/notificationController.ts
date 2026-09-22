@@ -1,5 +1,5 @@
 import { Response, Request } from 'express';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { db } from '../database/db';
 import { notifications } from '../database/schema';
 import logger from '../utils/logger';
@@ -43,5 +43,15 @@ export const markNotificationRead = async (req: AuthenticatedRequest, res: Respo
   } catch (err: any) {
     logger.error({ err, userId: req.user.id }, 'notifications.mark_read_failed');
     res.status(500).json({ error: 'Failed to update notification' });
+  }
+};
+
+export const markAllRead = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await db.update(notifications).set({ read: true }).where(and(eq(notifications.userId, req.user.id), eq(notifications.read, false)));
+    res.status(200).json({ message: 'All notifications marked as read' });
+  } catch (err: any) {
+    logger.error({ err, userId: req.user.id }, 'notifications.mark_all_read_failed');
+    res.status(500).json({ error: 'Failed to update notifications' });
   }
 };

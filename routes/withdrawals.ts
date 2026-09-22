@@ -1,5 +1,6 @@
 import express from 'express';
 import authenticateToken from '../middleware/auth';
+import adminAuthMiddleware from '../middleware/adminAuth';
 import * as withdrawalController from '../controllers/withdrawalController';
 
 const router = express.Router();
@@ -53,6 +54,6 @@ router.delete('/:withdrawalId/cancel', authenticateToken, withdrawalController.c
  * POST /api/admin/withdrawals/process
  * Process a pending withdrawal request
  */
-router.post('/admin/process', authenticateToken, withdrawalController.processWithdrawal as any);
+router.post('/admin/process', adminAuthMiddleware as any, withdrawalController.processWithdrawal as any);
 
 export default router;

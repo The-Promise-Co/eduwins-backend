@@ -339,7 +339,7 @@ export const googleRegister = async (req: Request, res: Response) => {
         totalEarnings: '0',
         ratingAvg: '0',
         totalSessions: 0,
-        isApproved: false,
+        isAdminApproved: false,
       }).onConflictDoNothing();
     } else {
       await db.insert(parentProfiles).values({
@@ -382,6 +382,10 @@ export const googleLogin = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'No account found for this Google email. Please register first.' });
     }
 
+    if (user.deletedAt || user.status === 'disabled') {
+      return res.status(403).json({ error: 'Account has been deactivated' });
+    }
+
     if (!user.isVerified) {
       await db.update(users)
         .set({ isVerified: true, emailVerified: true, photoUrl: user.photoUrl || googleUser.picture || null })
@@ -394,7 +398,7 @@ export const googleLogin = async (req: Request, res: Response) => {
           totalEarnings: '0',
           ratingAvg: '0',
           totalSessions: 0,
-          isApproved: false,
+isAdminApproved: false,
         }).onConflictDoNothing();
       } else if (user.role === 'parent') {
         await db.insert(parentProfiles).values({
@@ -480,7 +484,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
         totalEarnings: '0',
         ratingAvg: '0',
         totalSessions: 0,
-        isApproved: false,
+        isAdminApproved: false,
       }).onConflictDoNothing();
     } else if (user.role === 'parent') {
       await db.insert(parentProfiles).values({
@@ -533,6 +537,10 @@ export const login = async (req: Request, res: Response) => {
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    if (user.deletedAt || user.status === 'disabled') {
+      return res.status(403).json({ error: 'Account has been deactivated' });
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash || '');
@@ -1023,7 +1031,10 @@ export const updateProfile = async (req: any, res: Response) => {
       qualification,
       educationLevels,
       sessionFormats,
-      deliveryModes
+      deliveryModes,
+      locationState,
+      locationLga,
+      locationArea,
     } = req.body;
 
     if ((firstName !== undefined && !firstName) || (lastName !== undefined && !lastName)) {
@@ -1068,6 +1079,9 @@ export const updateProfile = async (req: any, res: Response) => {
       if (educationLevels !== undefined) teacherUpdateData.educationLevels = educationLevels;
       if (sessionFormats !== undefined) teacherUpdateData.sessionFormats = sessionFormats;
       if (deliveryModes !== undefined) teacherUpdateData.deliveryModes = deliveryModes;
+      if (locationState !== undefined) teacherUpdateData.locationState = locationState || null;
+      if (locationLga !== undefined) teacherUpdateData.locationLga = locationLga || null;
+      if (locationArea !== undefined) teacherUpdateData.locationArea = locationArea || null;
 
       if (Object.keys(teacherUpdateData).length > 0) {
         await db.update(teacherProfiles)
@@ -1201,6 +1215,10 @@ export const verify2FA = async (req: Request, res: Response) => {
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (user.deletedAt || user.status === 'disabled') {
+      return res.status(403).json({ error: 'Account has been deactivated' });
     }
 
     // Mark token as used

@@ -1,11 +1,14 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
+import { and, eq, isNull, isNotNull, lte } from 'drizzle-orm';
 import { db } from '../../database/db';
 import { transactions, bookings } from '../../database/schema';
-import { eq } from 'drizzle-orm';
 import { enrollUserInCourse } from '../courses/enrollment';
 import { settleCoursePayment } from './verifyPayment';
 import logger from '../../utils/logger';
+import { getBookingPaymentWindowHours } from '../../services/systemSettingsService';
+import { calculatePaystackFee } from '../../utils/paystackFees';
+import { createNotification } from '../notificationController';
 
 export const paystackWebhook = async (req: Request, res: Response) => {
   const hash = req.headers['x-paystack-signature'] as string;
@@ -35,25 +38,129 @@ export const paystackWebhook = async (req: Request, res: Response) => {
       const metadata = event.data.metadata || {};
 
       if (metadata.booking_id) {
-        await db.update(bookings)
-          .set({
-            status: 'paid_escrow',
-            paymentReference: event.data.reference
-          })
-          .where(eq(bookings.id, metadata.booking_id));
+        const bookingId = metadata.booking_id;
+        const teacherId = metadata.teacher_id;
+        const parentId = metadata.parent_id;
+        const paystackReference = event.data.reference;
 
-        log.info({
-          bookingId: metadata.booking_id,
-          reference: event.data.reference,
-          provider: 'paystack',
-        }, 'payment.webhook_booking_marked_paid');
+        if (!bookingId || !teacherId || !parentId) {
+          log.warn({ metadata, reference: paystackReference }, 'payment.webhook_booking_missing_ids');
+        } else {
+          const existingTransaction = await db.query.transactions.findFirst({
+            where: eq(transactions.paystackReference, paystackReference),
+          });
+
+          if (existingTransaction) {
+            log.info({
+              reference: paystackReference,
+              transactionId: existingTransaction.id,
+              bookingId,
+              teacherId,
+              parentId,
+            }, 'payment.webhook_booking_skipped_existing_transaction');
+          } else {
+            const booking = await db.query.bookings.findFirst({ where: eq(bookings.id, bookingId) });
+            if (!booking) {
+              log.warn({ bookingId, reference: paystackReference }, 'payment.webhook_booking_not_found');
+            } else if (booking.status !== 'accepted') {
+              log.warn({ bookingId, status: booking.status, reference: paystackReference }, 'payment.webhook_booking_not_accepted');
+            } else if (booking.paidAt) {
+              log.warn({ bookingId, reference: paystackReference }, 'payment.webhook_booking_already_paid');
+            } else if (!booking.acceptedAt) {
+              log.warn({ bookingId, reference: paystackReference }, 'payment.webhook_booking_missing_accepted_at');
+            } else {
+              const paymentWindowHours = await getBookingPaymentWindowHours();
+              const acceptedTime = new Date(booking.acceptedAt).getTime();
+              if (!Number.isFinite(acceptedTime) || acceptedTime + paymentWindowHours * 60 * 60 * 1000 < Date.now()) {
+                await db.update(bookings)
+                  .set({ status: 'cancelled', cancelledAt: new Date(), cancelledBy: 'system', updatedAt: new Date() })
+                  .where(eq(bookings.id, bookingId));
+                log.warn({ bookingId, reference: paystackReference }, 'payment.webhook_booking_expired_cancelled');
+              } else {
+                // Customer is charged total + fee; the merchant nets the full
+                // total. Validate the gross charged figure and record the fee
+                // breakdown on the row.
+                const escrowAmount = Number(booking.totalAmount || 0);
+                const expectedFee = calculatePaystackFee(escrowAmount);
+                const chargedAmount = Number(event.data.amount || 0) / 100;
+                const paystackFee = Number(event.data.fees || 0) / 100;
+                if (!Number.isFinite(escrowAmount) || escrowAmount <= 0 || chargedAmount !== escrowAmount + expectedFee) {
+                  log.warn({ bookingId, escrowAmount, expectedFee, chargedAmount, reference: paystackReference }, 'payment.webhook_booking_amount_mismatch');
+                } else {
+                  const transactionId = Math.random().toString(36).substring(2, 15);
+                  await db.insert(transactions).values({
+                    id: transactionId,
+                    bookingId,
+                    teacherId,
+                    paystackReference: paystackReference || null,
+                    amount: escrowAmount.toString(),
+                    type: 'booking_escrow_payment',
+                    metadata: {
+                      ...event.data,
+                      parentId,
+                      escrowAmount,
+                      chargedAmount,
+                      paystackFee,
+                      feeBearer: 'customer',
+                    },
+                  });
+
+                  const now = new Date();
+                  const [updated] = await db.update(bookings)
+                    .set({
+                      status: 'paid_escrow',
+                      paidAt: now,
+                      paymentReference: paystackReference,
+                      updatedAt: now,
+                    })
+                    .where(eq(bookings.id, bookingId))
+                    .returning();
+
+                  if (updated) {
+                    await createNotification({
+                      userId: parentId,
+                      type: 'booking_payment_confirmed',
+                      title: 'Payment confirmed',
+                      message: `Your payment of ₦${chargedAmount.toLocaleString()} (incl. ₦${paystackFee.toLocaleString()} processing fee) was confirmed. Session secured.`,
+                    });
+
+                    await createNotification({
+                      userId: teacherId,
+                      type: 'booking_paid_escrow',
+                      title: 'Payment received',
+                      message: `Parent payment of ₦${escrowAmount.toLocaleString()} received and held in platform escrow.`,
+                    });
+
+                    log.info({
+                      reference: paystackReference,
+                      transactionId,
+                      bookingId,
+                      teacherId,
+                      parentId,
+                      escrowAmount,
+                      chargedAmount,
+                      paystackFee,
+                    }, 'payment.webhook_booking_settlement_succeeded');
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // A booking charge is fully handled above (settled, skipped as a
+      // duplicate, or rejected with a warning). Exit here so the generic
+      // payment_in recorder below can never write a duplicate row for it —
+      // including on webhook retries, where the booking branch dedupes but
+      // the generic insert has no guard.
+      if (metadata.booking_id) {
+        return res.json({ received: true });
       }
 
       if (metadata.course_id && metadata.user_id) {
         const enrollmentResult = await enrollUserInCourse(metadata.course_id, metadata.user_id);
-        const amount = event.data.amount / 100;
         await settleCoursePayment({
-          amount,
           metadata,
           paymentData: event.data,
           enrollmentResult,

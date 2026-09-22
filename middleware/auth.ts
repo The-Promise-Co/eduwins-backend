@@ -29,6 +29,10 @@ const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunctio
       return res.status(401).json({ error: 'User not found' });
     }
 
+    if (user.deletedAt || user.status === 'disabled') {
+      return res.status(401).json({ error: 'Account has been deactivated' });
+    }
+
     req.user = { 
       id: user.id, 
       role: user.role 
