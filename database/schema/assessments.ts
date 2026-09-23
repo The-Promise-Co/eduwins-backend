@@ -47,6 +47,25 @@ export const assessmentQuestions = pgTable('assessment_questions', {
   options: jsonb('options').$type<Array<{ id: string; label: string }> | null>(),
   correctOptionId: varchar('correct_option_id', { length: 50 }),
   correctBoolean: boolean('correct_boolean'),
+  sectionId: varchar('section_id', { length: 255 }).references(() => assessmentSections.id, { onDelete: 'set null' }),
+  orderIndex: integer('order_index').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+/**
+ * assessment_sections
+ * Teacher-defined exam-style groupings (Section A/B/C). Display-only:
+ * marks live on questions, timing on the assessment. Deleting a section
+ * orphans its questions (section_id → null) instead of destroying them.
+ * Assessments with zero sections render their questions as a flat list.
+ */
+export const assessmentSections = pgTable('assessment_sections', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  assessmentId: varchar('assessment_id', { length: 255 })
+    .notNull()
+    .references(() => assessments.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 255 }).notNull(),
+  instructions: text('instructions'),
   orderIndex: integer('order_index').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow(),
 });
@@ -104,6 +123,8 @@ export type Assessment = InferSelectModel<typeof assessments>;
 export type NewAssessment = InferInsertModel<typeof assessments>;
 export type AssessmentQuestion = InferSelectModel<typeof assessmentQuestions>;
 export type NewAssessmentQuestion = InferInsertModel<typeof assessmentQuestions>;
+export type AssessmentSection = InferSelectModel<typeof assessmentSections>;
+export type NewAssessmentSection = InferInsertModel<typeof assessmentSections>;
 export type AssessmentAssignment = InferSelectModel<typeof assessmentAssignments>;
 export type NewAssessmentAssignment = InferInsertModel<typeof assessmentAssignments>;
 export type AssessmentAttempt = InferSelectModel<typeof assessmentAttempts>;

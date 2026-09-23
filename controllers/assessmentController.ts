@@ -3,6 +3,7 @@ import { db } from '../database/db';
 import {
   assessments,
   assessmentQuestions,
+  assessmentSections,
   assessmentAssignments,
   assessmentAttempts,
   users,
@@ -32,6 +33,13 @@ interface QuestionInput {
   options?: Array<{ id: string; label: string }>;
   correctOptionId?: string;
   correctBoolean?: boolean;
+  sectionId?: string | null;
+}
+
+interface SectionInput {
+  id?: string;
+  title: string;
+  instructions?: string | null;
 }
 
 const toQuestionDTO = (q: typeof assessmentQuestions.$inferSelect) => ({
@@ -42,6 +50,14 @@ const toQuestionDTO = (q: typeof assessmentQuestions.$inferSelect) => ({
   options: (q.options as Array<{ id: string; label: string }> | null) || undefined,
   correctOptionId: q.correctOptionId || undefined,
   correctBoolean: q.correctBoolean ?? undefined,
+  sectionId: q.sectionId || null,
+});
+
+const toSectionDTO = (s: typeof assessmentSections.$inferSelect, orderIndex: number) => ({
+  id: s.id,
+  title: s.title,
+  instructions: s.instructions || null,
+  orderIndex,
 });
 
 async function getAssessmentWithQuestions(assessmentId: string) {
@@ -53,6 +69,11 @@ async function getAssessmentWithQuestions(assessmentId: string) {
     .from(assessmentQuestions)
     .where(eq(assessmentQuestions.assessmentId, assessmentId))
     .orderBy(assessmentQuestions.orderIndex);
+  const secs = await db
+    .select()
+    .from(assessmentSections)
+    .where(eq(assessmentSections.assessmentId, assessmentId))
+    .orderBy(assessmentSections.orderIndex);
   return {
     id: a.id,
     title: a.title,
@@ -63,6 +84,7 @@ async function getAssessmentWithQuestions(assessmentId: string) {
     dueAt: a.dueAt ? a.dueAt.toISOString() : null,
     status: a.status,
     questions: qs.map(toQuestionDTO),
+    sections: secs.map((s, i) => toSectionDTO(s, i)),
     createdBy: a.createdBy,
     createdAt: a.createdAt ? a.createdAt.toISOString() : undefined,
     updatedAt: a.updatedAt ? a.updatedAt.toISOString() : undefined,
@@ -164,6 +186,68 @@ async function requireTeacherOwner(assessmentId: string, userId: string, role: s
   return rows[0].createdBy === userId;
 }
 
+/** Non-revoked assignments — the lock signal for question/section structure. */
+async function countActiveAssignments(assessmentId: string) {
+  const all = await db
+    .select({ status: assessmentAssignments.status })
+    .from(assessmentAssignments)
+    .where(eq(assessmentAssignments.assessmentId, assessmentId));
+  return all.filter((r) => r.status !== 'revoked').length;
+}
+
+/**
+ * Persist the section set: update existing (preserves question links),
+ * insert new, delete removed (their questions orphan to unassigned via
+ * ON DELETE SET NULL). Returns the valid section ids for linkage.
+ */
+async function saveSections(assessmentId: string, sections: SectionInput[]) {
+  const existing = await db
+    .select()
+    .from(assessmentSections)
+    .where(eq(assessmentSections.assessmentId, assessmentId));
+  const existingIds = new Set(existing.map((s) => s.id));
+  const incomingIds = new Set<string>();
+  for (let i = 0; i < sections.length; i++) {
+    const s = sections[i];
+    const id = s.id || genId();
+    incomingIds.add(id);
+    if (existingIds.has(id)) {
+      await db
+        .update(assessmentSections)
+        .set({ title: s.title, instructions: s.instructions || null, orderIndex: i })
+        .where(eq(assessmentSections.id, id));
+    } else {
+      await db.insert(assessmentSections).values({
+        id,
+        assessmentId,
+        title: s.title,
+        instructions: s.instructions || null,
+        orderIndex: i,
+      });
+    }
+  }
+  for (const s of existing) {
+    if (!incomingIds.has(s.id)) {
+      await db.delete(assessmentSections).where(eq(assessmentSections.id, s.id));
+    }
+  }
+  return incomingIds;
+}
+
+/**
+ * True when the incoming section list changes structure (add/remove/reorder)
+ * as opposed to title/instructions-only edits on the same ordered id set.
+ */
+async function isStructuralSectionChange(assessmentId: string, sections: SectionInput[]) {
+  const existing = await db
+    .select()
+    .from(assessmentSections)
+    .where(eq(assessmentSections.assessmentId, assessmentId))
+    .orderBy(assessmentSections.orderIndex);
+  if (existing.length !== sections.length) return true;
+  return existing.some((s, i) => s.id !== sections[i].id);
+}
+
 /* ------------------------------------------------------------------ */
 /* Assessments                                                           */
 /* ------------------------------------------------------------------ */
@@ -206,13 +290,14 @@ export const createAssessment = async (req: AuthenticatedRequest, res: Response)
   if (req.user.role !== 'teacher' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Only teachers can create assessments' });
   }
-  const { title, subject, description, durationMinutes, dueAt, questions } = req.body as {
+  const { title, subject, description, durationMinutes, dueAt, questions, sections } = req.body as {
     title?: string;
     subject?: string;
     description?: string;
     durationMinutes?: number;
     dueAt?: string;
     questions?: QuestionInput[];
+    sections?: SectionInput[];
   };
   if (!title?.trim() || !subject?.trim()) {
     return res.status(400).json({ error: 'Title and subject are required' });
@@ -234,6 +319,7 @@ export const createAssessment = async (req: AuthenticatedRequest, res: Response)
       dueAt: dueAt ? new Date(dueAt) : null,
       status: 'draft',
     });
+    const validSections = await saveSections(id, sections || []);
     await db.insert(assessmentQuestions).values(
       questions.map((q, i) => ({
         id: q.id || genId(),
@@ -244,6 +330,7 @@ export const createAssessment = async (req: AuthenticatedRequest, res: Response)
         options: q.options || null,
         correctOptionId: q.correctOptionId || null,
         correctBoolean: q.correctBoolean ?? null,
+        sectionId: q.sectionId && validSections.has(q.sectionId) ? q.sectionId : null,
         orderIndex: i,
       })),
     );
@@ -371,7 +458,11 @@ export const getAssessment = async (req: AuthenticatedRequest, res: Response) =>
 
 /**
  * PUT /api/assessments/:id
- * Owner teacher, draft only. Replaces the question set.
+ * Owner teacher. Metadata (title/subject/description/duration/due date)
+ * editable on draft and published. Question + section structure editable
+ * on drafts, and on published only while no active (non-revoked) invites
+ * exist. Section title/instructions-only edits are metadata and always
+ * allowed.
  */
 export const updateAssessment = async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
@@ -380,17 +471,22 @@ export const updateAssessment = async (req: AuthenticatedRequest, res: Response)
     if (owned === null) return res.status(404).json({ error: 'Assessment not found' });
     if (!owned) return res.status(403).json({ error: 'Not allowed' });
     const current = await db.select().from(assessments).where(eq(assessments.id, id));
-    if (current[0].status !== 'draft') {
-      return res.status(400).json({ error: 'Only drafts can be edited' });
-    }
-    const { title, subject, description, durationMinutes, dueAt, questions } = req.body as {
+    const { title, subject, description, durationMinutes, dueAt, questions, sections } = req.body as {
       title?: string;
       subject?: string;
       description?: string;
       durationMinutes?: number;
       dueAt?: string | null;
       questions?: QuestionInput[];
+      sections?: SectionInput[];
     };
+    const locked = current[0].status !== 'draft' && (await countActiveAssignments(id)) > 0;
+    if (questions !== undefined && locked) {
+      return res.status(400).json({ error: 'Questions are locked once invites have been sent' });
+    }
+    if (sections !== undefined && locked && (await isStructuralSectionChange(id, sections))) {
+      return res.status(400).json({ error: 'Sections are locked once invites have been sent' });
+    }
     const patch: Partial<typeof assessments.$inferInsert> = { updatedAt: new Date() };
     if (title !== undefined) patch.title = title;
     if (subject !== undefined) patch.subject = subject;
@@ -401,7 +497,15 @@ export const updateAssessment = async (req: AuthenticatedRequest, res: Response)
       patch.totalMarks = questions.reduce((s, q) => s + (Number(q.marks) || 0), 0);
     }
     await db.update(assessments).set(patch).where(eq(assessments.id, id));
+    if (sections !== undefined) {
+      await saveSections(id, sections);
+    }
     if (questions !== undefined) {
+      const existingSecs = await db
+        .select()
+        .from(assessmentSections)
+        .where(eq(assessmentSections.assessmentId, id));
+      const validSections = new Set(existingSecs.map((s) => s.id));
       await db.delete(assessmentQuestions).where(eq(assessmentQuestions.assessmentId, id));
       if (questions.length > 0) {
         await db.insert(assessmentQuestions).values(
@@ -414,6 +518,7 @@ export const updateAssessment = async (req: AuthenticatedRequest, res: Response)
             options: q.options || null,
             correctOptionId: q.correctOptionId || null,
             correctBoolean: q.correctBoolean ?? null,
+            sectionId: q.sectionId && validSections.has(q.sectionId) ? q.sectionId : null,
             orderIndex: i,
           })),
         );
@@ -472,7 +577,8 @@ export const listAssignments = async (req: AuthenticatedRequest, res: Response) 
 
 /**
  * POST /api/assessments/:id/assignments
- * Owner teacher invites a parent or child. Auto-assigned, no accept step.
+ * Owner teacher invites a parent or child. Published assessments only.
+ * Auto-assigned, no accept step.
  */
 export const inviteAssignment = async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
@@ -489,6 +595,10 @@ export const inviteAssignment = async (req: AuthenticatedRequest, res: Response)
     const owned = await requireTeacherOwner(id, req.user.id, req.user.role);
     if (owned === null) return res.status(404).json({ error: 'Assessment not found' });
     if (!owned) return res.status(403).json({ error: 'Not allowed' });
+    const asmRows = await db.select().from(assessments).where(eq(assessments.id, id));
+    if (asmRows[0].status !== 'published') {
+      return res.status(400).json({ error: 'Only published assessments can invite learners' });
+    }
     const resolved = await resolveAssigneeName(assigneeType, assigneeId);
     if (!resolved) return res.status(404).json({ error: 'Assignee not found' });
     const assignmentId = genId();
