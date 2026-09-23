@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import logger from '../utils/logger';
+import { getIO } from '../config/socket';
 import {
   getConversations,
+  getConversationParticipantIds,
   getMessages,
   sendConversationRequest,
   acceptConversation,
@@ -60,6 +62,21 @@ export const sendRequest = async (req: AuthenticatedRequest, res: Response) => {
       return res.status(400).json({ error: result.error });
     }
 
+    // Notify the recipient live (they join their personal `user:{id}` room on
+    // socket connect). REST polling remains as fallback.
+    try {
+      const otherId = (result.conversation.participants as { id: string }[]).find(
+        (p) => p.id !== req.user.id
+      )?.id;
+      if (otherId) {
+        getIO().to(`user:${otherId}`).emit('chat:new_conversation', {
+          conversation: result.conversation,
+        });
+      }
+    } catch (err: any) {
+      logger.warn({ err }, 'chat.new_conversation_emit_failed');
+    }
+
     res.status(201).json({ conversation: result.conversation });
   } catch (err: any) {
     logger.error({ err, userId: req.user.id }, 'chat.send_request_failed');
@@ -77,6 +94,21 @@ export const acceptRequest = async (req: AuthenticatedRequest, res: Response) =>
       return res.status(400).json({ error: result.error });
     }
 
+    // Notify the other participant live so their list updates instantly.
+    try {
+      const otherId = (await getConversationParticipantIds(conversationId)).find(
+        (id) => id !== req.user.id
+      );
+      if (otherId) {
+        getIO().to(`user:${otherId}`).emit('chat:conversation_updated', {
+          conversationId,
+          status: 'accepted',
+        });
+      }
+    } catch (err: any) {
+      logger.warn({ err }, 'chat.conversation_updated_emit_failed');
+    }
+
     res.status(200).json({ message: 'Chat request accepted' });
   } catch (err: any) {
     logger.error({ err, userId: req.user.id, conversationId: req.params.conversationId }, 'chat.accept_failed');
@@ -92,6 +124,21 @@ export const declineRequest = async (req: AuthenticatedRequest, res: Response) =
 
     if ('error' in result) {
       return res.status(400).json({ error: result.error });
+    }
+
+    // Notify the other participant live so their list updates instantly.
+    try {
+      const otherId = (await getConversationParticipantIds(conversationId)).find(
+        (id) => id !== req.user.id
+      );
+      if (otherId) {
+        getIO().to(`user:${otherId}`).emit('chat:conversation_updated', {
+          conversationId,
+          status: 'declined',
+        });
+      }
+    } catch (err: any) {
+      logger.warn({ err }, 'chat.conversation_updated_emit_failed');
     }
 
     res.status(200).json({ message: 'Chat request declined' });

@@ -436,3 +436,11 @@ export async function markAsRead(conversationId: string, userId: string): Promis
 
   return now;
 }
+
+// ── Participant ids for a conversation ─────────────────────────────
+export async function getConversationParticipantIds(conversationId: string): Promise<string[]> {
+  const parts = await db.query.conversationParticipants.findMany({
+    where: eq(conversationParticipants.conversationId, conversationId),
+  });
+  return parts.map((p) => p.userId);
+}

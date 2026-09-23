@@ -5,7 +5,7 @@ import { db } from '../database/db';
 import { users } from '../database/schema';
 import { eq } from 'drizzle-orm';
 import logger from '../utils/logger';
-import { getConversations, sendMessage, markAsRead } from '../services/chat';
+import { getConversations, sendMessage, markAsRead, getConversationParticipantIds } from '../services/chat';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 
@@ -128,10 +128,28 @@ export function initSocket(httpServer: HttpServer): Server {
         });
 
         // Broadcast to conversation room
+        if (!message) return;
         io.to(`conversation:${conversationId}`).emit('chat:new_message', {
           message,
           conversation: { id: conversationId },
         });
+
+        // Fallback: also notify each participant's personal room (auto-joined
+        // on every connect), so delivery survives lost conversation-room
+        // membership and reaches recipients viewing the list/other chats.
+        try {
+          const participantIds = await getConversationParticipantIds(conversationId);
+          for (const pid of participantIds) {
+            if (pid !== userId) {
+              io.to(`user:${pid}`).emit('chat:new_message', {
+                message,
+                conversation: { id: conversationId },
+              });
+            }
+          }
+        } catch (emitErr: any) {
+          logger.warn({ err: emitErr, conversationId }, 'socket.user_room_emit_failed');
+        }
       } catch (err: any) {
         logger.error({ err, userId, conversationId: data.conversationId }, 'socket.send_message_failed');
         socket.emit('chat:error', { message: 'Failed to send message' });
