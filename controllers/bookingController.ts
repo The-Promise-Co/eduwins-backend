@@ -6,6 +6,7 @@ import { calculateCourseSplits } from './paystack/verifyPayment';
 import { emailService } from '../utils/emailSender';
 import { createNotification } from './notificationController';
 import logger from '../utils/logger';
+import { getLagosTodayString, parseBookingDayStart } from '../utils/bookingTime';
 import { getBookingPaymentWindowHours } from '../services/systemSettingsService';
 
 interface AuthenticatedRequest extends Request {
@@ -58,10 +59,10 @@ export const createBookingRequest = async (req: AuthenticatedRequest, res: Respo
     }
 
     if (process.env.DEV_ALLOW_ANY_DATE !== 'true') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const requested = new Date(`${scheduledDate}T00:00:00`);
-      if (Number.isNaN(requested.getTime())) {
+      // Day boundaries are Lagos calendar days — independent of server TZ.
+      const today = parseBookingDayStart(getLagosTodayString());
+      const requested = parseBookingDayStart(scheduledDate);
+      if (!today || !requested) {
         return res.status(400).json({ error: 'Invalid date format' });
       }
       if (requested.getTime() < today.getTime() + 24 * 60 * 60 * 1000) {

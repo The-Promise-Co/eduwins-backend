@@ -5,6 +5,7 @@ import { AccessToken } from 'livekit-server-sdk';
 import { db } from '../database/db';
 import { bookings, bookingChildren, children, users, sessionJoinCodes, sessionEvents, sessionNotes, whiteboardSnapshots } from '../database/schema';
 import logger from '../utils/logger';
+import { parseBookingDateTime } from '../utils/bookingTime';
 
 const LIVEKIT_URL = process.env.LIVEKIT_URL || '';
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || '';
@@ -37,7 +38,10 @@ const getBookingWithAccess = async (bookingId: string, userId: string) => {
 
 const validateTimingWindow = (booking: { scheduledDate?: string | null; startTime?: string | null; durationHours?: string | number | null }) => {
   if (!booking.scheduledDate || !booking.startTime) return { valid: false, error: 'Session schedule not set' };
-  const start = new Date(`${booking.scheduledDate}T${booking.startTime}`);
+  // Booking wall-clock is Africa/Lagos time — parse explicitly so the result
+  // does not depend on the server's OS timezone.
+  const start = parseBookingDateTime(booking.scheduledDate, booking.startTime);
+  if (!start) return { valid: false, error: 'Session schedule not set' };
   const durationMs = Number(booking.durationHours || 1) * 60 * 60 * 1000;
   const end = new Date(start.getTime() + durationMs);
   const joinWindowOpen = new Date(start.getTime() - JOIN_WINDOW_MINUTES * 60 * 1000);
@@ -681,8 +685,10 @@ export const endSession = async (req: AuthenticatedRequest, res: Response) => {
     const { booking, error, status } = await getBookingWithAccess(bookingId, req.user.id);
     if (!booking) return res.status(status).json({ error });
 
+    // Booking wall-clock is Africa/Lagos time — parse explicitly so the result
+    // does not depend on the server's OS timezone.
     const scheduledEnd = booking.scheduledDate && booking.endTime
-      ? new Date(`${booking.scheduledDate}T${booking.endTime}`)
+      ? parseBookingDateTime(booking.scheduledDate, booking.endTime)
       : null;
     if (!scheduledEnd || Number.isNaN(scheduledEnd.getTime())) {
       return res.status(400).json({ error: 'Session end time is not set' });
