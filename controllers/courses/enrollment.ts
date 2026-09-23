@@ -5,6 +5,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { attachTeacherNames } from './attachTeacherNames';
 import { initializePaystackTransaction } from '../paystack/initializePayment';
 import { buildProgressSummary } from './progress';
+import { calculatePaystackFee } from '../../utils/paystackFees';
 import logger from '../../utils/logger';
 
 interface AuthenticatedRequest extends Request {
@@ -91,20 +92,26 @@ export const enrollCourse = async (req: AuthenticatedRequest, res: Response) => 
       return res.status(201).json({ enrollment: result.enrollment, requiresPayment: false });
     }
 
-    const amount = Number(course.price || 0);
+    const coursePrice = Number(course.price || 0);
     const email = req.user.email || req.body.email;
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required to initialize payment' });
     }
 
-    if (amount <= 0) {
+    if (coursePrice <= 0) {
       return res.status(400).json({ error: 'Invalid course price' });
     }
 
+    // Pass only the course price to Paystack — the dashboard "Pass fees to
+    // customers" setting adds the fee at checkout. Marking up here would
+    // charge fees twice. processingFee is a UI estimate only.
+    const processingFee = calculatePaystackFee(coursePrice);
+    const estimatedCharge = coursePrice + processingFee;
+
     const payment = await initializePaystackTransaction({
       email,
-      amount,
+      amount: coursePrice,
       callback_url: req.body.callback_url || `${process.env.FRONTEND_URL}/courses/payment/confirm`,
       metadata: {
         payment_for: 'course',
@@ -112,6 +119,8 @@ export const enrollCourse = async (req: AuthenticatedRequest, res: Response) => 
         user_id: userId,
         teacher_id: course.teacher_id,
         course_title: course.title,
+        course_price: coursePrice,
+        processing_fee: processingFee,
       },
     });
 
@@ -121,6 +130,9 @@ export const enrollCourse = async (req: AuthenticatedRequest, res: Response) => 
       authorization_url: payment.authorization_url,
       reference: payment.reference,
       access_code: payment.access_code,
+      coursePrice,
+      processingFee,
+      chargeAmount: estimatedCharge,
     });
   } catch (err: any) {
     (req.log || logger).error({ err, courseId: req.params.id, userId: req.user.id }, 'course.enroll_failed');

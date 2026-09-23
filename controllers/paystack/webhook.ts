@@ -7,7 +7,6 @@ import { enrollUserInCourse } from '../courses/enrollment';
 import { settleCoursePayment } from './verifyPayment';
 import logger from '../../utils/logger';
 import { getBookingPaymentWindowHours } from '../../services/systemSettingsService';
-import { calculatePaystackFee } from '../../utils/paystackFees';
 import { createNotification } from '../notificationController';
 
 export const paystackWebhook = async (req: Request, res: Response) => {
@@ -77,15 +76,14 @@ export const paystackWebhook = async (req: Request, res: Response) => {
                   .where(eq(bookings.id, bookingId));
                 log.warn({ bookingId, reference: paystackReference }, 'payment.webhook_booking_expired_cancelled');
               } else {
-                // Customer is charged total + fee; the merchant nets the full
-                // total. Validate the gross charged figure and record the fee
-                // breakdown on the row.
-                const escrowAmount = Number(booking.totalAmount || 0);
-                const expectedFee = calculatePaystackFee(escrowAmount);
+                // Pass-fees adds the fee at checkout: escrow = customer
+                // total − Paystack's returned fee (= cost we initialized).
+                // The fee is recorded, never folded into the value.
                 const chargedAmount = Number(event.data.amount || 0) / 100;
                 const paystackFee = Number(event.data.fees || 0) / 100;
-                if (!Number.isFinite(escrowAmount) || escrowAmount <= 0 || chargedAmount !== escrowAmount + expectedFee) {
-                  log.warn({ bookingId, escrowAmount, expectedFee, chargedAmount, reference: paystackReference }, 'payment.webhook_booking_amount_mismatch');
+                const escrowAmount = chargedAmount - paystackFee;
+                if (!Number.isFinite(escrowAmount) || escrowAmount <= 0) {
+                  log.warn({ bookingId, chargedAmount, paystackFee, reference: paystackReference }, 'payment.webhook_booking_amount_mismatch');
                 } else {
                   const transactionId = Math.random().toString(36).substring(2, 15);
                   await db.insert(transactions).values({

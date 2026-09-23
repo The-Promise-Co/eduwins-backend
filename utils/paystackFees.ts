@@ -1,14 +1,16 @@
 /**
  * Paystack processing-fee handling.
  *
- * Platform policy: fees are pushed to the customer. The parent is charged
- * `total + fee`, so the merchant always nets the full booking total and
- * splits are computed on that exact figure (no net-vs-gross ambiguity).
+ * Platform policy: fees are borne by the customer, but they are NOT added
+ * to the amount we send to Paystack. The dashboard "Pass fees to customers"
+ * setting makes Paystack calculate and add the real fee at checkout, and
+ * Paystack retains that fee while the merchant receives the cost we listed.
  *
- * Formula mirrors Paystack NG local-card pricing (1.5% + ₦100, capped at
- * ₦2,000). Card type is unknowable upfront; residual variance on
- * international cards is absorbed by the platform and documented in the
- * transaction metadata (actual fee from the payload is ground truth).
+ * We still estimate the fee here purely for UI display (quote rows and the
+ * Pay button show cost + estimated fee). The amount initialized with
+ * Paystack is always the bare cost. Settlement never calculates: it
+ * subtracts Paystack's returned fee from the charged figure and splits
+ * that actual amount.
  */
 
 export const PAYSTACK_FEE_RATE = 0.015;
@@ -22,7 +24,7 @@ export function calculatePaystackFee(totalNaira: number): number {
   return Math.min(fee, PAYSTACK_FEE_CAP_NAIRA);
 }
 
-/** Full amount the customer is charged: total + fee. */
+/** Display estimate of what the customer pays at checkout: total + fee. */
 export function chargeTotalWithFee(totalNaira: number): number {
   return totalNaira + calculatePaystackFee(totalNaira);
 }

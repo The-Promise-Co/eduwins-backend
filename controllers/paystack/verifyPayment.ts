@@ -2,13 +2,12 @@ import { Request, Response } from 'express';
 import axios from 'axios';
 import { and, eq, isNull, isNotNull, lte } from 'drizzle-orm';
 import { db } from '../../database/db';
-import { platformConfigs, transactions, bookings, courses } from '../../database/schema';
+import { platformConfigs, transactions, bookings } from '../../database/schema';
 import { enrollUserInCourse } from '../courses/enrollment';
 import { creditWallet, ensurePlatformWallet, ensureUserWallets } from '../../services/walletService';
 import logger from '../../utils/logger';
 import { createNotification } from '../notificationController';
 import { getBookingPaymentWindowHours } from '../../services/systemSettingsService';
-import { calculatePaystackFee } from '../../utils/paystackFees';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
@@ -77,21 +76,16 @@ const settleBookingPayment = async ({
     return { success: false, error: 'Payment window expired' };
   }
 
-  // Platform policy: the customer is charged total + fee, so the merchant
-  // nets the full total. Validate the gross charged figure and record the
-  // fee breakdown on the row; the stored amount is the escrow basis.
-  const escrowAmount = Number(booking.totalAmount || 0);
-  if (!Number.isFinite(escrowAmount) || escrowAmount <= 0) {
-    log.warn({ bookingId, reference: paystackReference }, 'payment.booking_missing_total');
-    return { success: false, error: 'Booking total is not available' };
-  }
-  const expectedFee = calculatePaystackFee(escrowAmount);
+  // Paystack's pass-fees setting adds the fee at checkout. Charged figure
+  // is the customer total; escrow is that total minus Paystack's returned
+  // fee (equal to the cost we initialized). Fee is recorded, never folded in.
   const chargedAmount = Number(paymentData.amount || 0) / 100;
-  if (chargedAmount !== escrowAmount + expectedFee) {
-    log.warn({ bookingId, escrowAmount, expectedFee, chargedAmount, reference: paystackReference }, 'payment.booking_amount_mismatch');
+  const paystackFee = Number(paymentData.fees || 0) / 100;
+  const escrowAmount = chargedAmount - paystackFee;
+  if (!Number.isFinite(escrowAmount) || escrowAmount <= 0) {
+    log.warn({ bookingId, chargedAmount, paystackFee, reference: paystackReference }, 'payment.booking_amount_mismatch');
     return { success: false, error: 'Payment amount mismatch' };
   }
-  const paystackFee = Number(paymentData.fees || 0) / 100;
 
   const transactionId = Math.random().toString(36).substring(2, 15);
   await db.insert(transactions).values({
@@ -191,35 +185,20 @@ export const settleCoursePayment = async ({
   enrollmentResult: Awaited<ReturnType<typeof enrollUserInCourse>> | null;
   log?: typeof logger;
 }) => {
-  // One rule for courses and bookings alike: the customer is charged price +
-  // fee, the merchant nets the full price, splits run on the price, and the
-  // fee is saved on the row — never folded into the value.
-  // Grace path: payments initialized before this deploy charged the exact
-  // price (merchant absorbed the fee); those settle with feeBearer platform.
+  // We initialize Paystack with the bare course price; pass-fees adds the
+  // fee at checkout. Actual value = charged total − Paystack's returned fee;
+  // splits run on that value and the fee is recorded separately.
   const chargedAmount = Number(paymentData.amount || 0) / 100;
   const actualFee = Number(paymentData.fees || 0) / 100;
-  let price = Number(metadata.course_price || 0);
-  if (!price && metadata.course_id) {
-    const [course] = await db.select({ price: courses.price })
-      .from(courses)
-      .where(eq(courses.id, metadata.course_id as string))
-      .limit(1);
-    price = Number(course?.price || 0);
-  }
-  if (!price) price = chargedAmount;
-  const expectedFee = calculatePaystackFee(price);
-  const feeBearer =
-    chargedAmount === price + expectedFee ? 'customer'
-    : chargedAmount === price ? 'platform'
-    : 'unknown';
-  if (feeBearer === 'unknown') {
+  const price = chargedAmount - actualFee;
+  if (!Number.isFinite(price) || price <= 0) {
     log.warn({
       reference: paymentData.reference,
       courseId: metadata.course_id,
-      price,
-      expectedFee,
       chargedAmount,
-    }, 'payment.course_amount_unrecognized');
+      actualFee,
+    }, 'payment.course_amount_mismatch');
+    return { splits: await calculateCourseSplits(0), transactionId: null, walletTransactions: [] };
   }
 
   const splits = await calculateCourseSplits(price);
@@ -267,7 +246,7 @@ export const settleCoursePayment = async ({
       coursePrice: price,
       chargedAmount,
       paystackFee: actualFee,
-      feeBearer,
+      feeBearer: 'customer',
       splits,
       enrollment: enrollmentResult?.enrollment || null,
       alreadyEnrolled,
@@ -355,7 +334,7 @@ export const settleCoursePayment = async ({
     coursePrice: price,
     chargedAmount,
     paystackFee: actualFee,
-    feeBearer,
+    feeBearer: 'customer',
     tutorAmount: splits.tutorAmount,
     welfareAmount: splits.welfareAmount,
     platformFee: splits.platformFee,

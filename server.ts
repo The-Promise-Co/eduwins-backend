@@ -116,10 +116,18 @@ app.use(requestLogger);
 app.use(express.json());
 app.use(express.static(uploadsDir));
 
-// Rate limiting
+// Rate limiting — session notes/snapshots are write-heavy during live calls
+// (debounced PUTs + snapshot gallery). Key by Authorization token when present
+// so NAT'd classrooms don't share one IP bucket; fall back to IP.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 600,
+  keyGenerator: (req) => {
+    const auth = req.headers.authorization;
+    if (auth && auth.startsWith('Bearer ')) return auth.slice(7);
+    return req.ip || 'unknown';
+  },
+  message: 'Too many requests, please try again later.',
 });
 app.use('/api', limiter);
 

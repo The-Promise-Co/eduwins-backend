@@ -7,9 +7,11 @@ import {
   postSessionEvent,
   getSessionEvents,
   getSessionNotes,
+  putSessionNotes,
   putPersonalNotes,
   putSharedNotes,
   postWhiteboardSnapshot,
+  postWhiteboardSnapshotsBatch,
   getWhiteboardSnapshots,
   startSession,
   endSession,
@@ -29,6 +31,8 @@ sessionRouter.get('/:bookingId/events', authenticateToken, getSessionEvents as a
 // handlers — JWT (teacher/parent of the booking) or a valid child join code
 // (childId + code) for code-joined children without a token.
 sessionRouter.get('/:bookingId/notes', getSessionNotes as any);
+// Batch PUT: one request can replace personal and/or shared together (frontend save queue).
+sessionRouter.put('/:bookingId/notes', express.json({ limit: '2mb' }) as any, putSessionNotes as any);
 sessionRouter.put('/:bookingId/notes/personal', express.json({ limit: '1mb' }) as any, putPersonalNotes as any);
 sessionRouter.put('/:bookingId/notes/shared', express.json({ limit: '1mb' }) as any, putSharedNotes as any);
 // Scene JSON payloads can be large — allow up to 5mb on snapshot routes.
@@ -36,6 +40,12 @@ sessionRouter.post(
   '/:bookingId/whiteboard/snapshots',
   express.json({ limit: '5mb' }) as any,
   postWhiteboardSnapshot as any,
+);
+// Batch flush of pending outbox snapshots (one request instead of N).
+sessionRouter.post(
+  '/:bookingId/whiteboard/snapshots/batch',
+  express.json({ limit: '15mb' }) as any,
+  postWhiteboardSnapshotsBatch as any,
 );
 sessionRouter.get('/:bookingId/whiteboard/snapshots', authenticateToken, getWhiteboardSnapshots as any);
 sessionRouter.patch('/:bookingId/start-session', authenticateToken, startSession as any);

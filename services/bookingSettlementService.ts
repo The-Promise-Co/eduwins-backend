@@ -35,11 +35,9 @@ export const settleBookingEscrow = async (bookingId: string): Promise<Settlement
   if (booking.status !== 'completed') return { status: 'skipped', reason: `status-${booking.status}` };
   if (!booking.teacherId) return { status: 'skipped', reason: 'no-teacher' };
 
-  const total = Number(booking.totalAmount || 0);
-  if (!Number.isFinite(total) || total <= 0) return { status: 'skipped', reason: 'no-amount' };
-
-  // Only release escrow that actually arrived (a booking can reach completed
-  // without payment via legacy data or manual flips — never mint from thin air).
+  // The split basis is the STORED escrow figure — gross charged minus
+  // Paystack's returned fee, as recorded at payment time — never the booking
+  // total. That stored actual amount is what gets split.
   const escrowPayment = await db.query.transactions.findFirst({
     where: and(
       eq(transactions.bookingId, bookingId),
@@ -47,6 +45,8 @@ export const settleBookingEscrow = async (bookingId: string): Promise<Settlement
     ),
   });
   if (!escrowPayment) return { status: 'skipped', reason: 'no-escrow' };
+  const total = Number(escrowPayment.amount || 0);
+  if (!Number.isFinite(total) || total <= 0) return { status: 'skipped', reason: 'no-amount' };
 
   // Idempotency fast path: a prior release leaves legs under this reference.
   // (Authoritative check runs inside the transaction under an advisory lock.)

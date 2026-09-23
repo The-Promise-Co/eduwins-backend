@@ -300,6 +300,62 @@ export const postWhiteboardSnapshot = async (req: Request, res: Response) => {
   }
 };
 
+// POST /sessions/:bookingId/whiteboard/snapshots/batch — flush multiple pending snapshots
+export const postWhiteboardSnapshotsBatch = async (req: Request, res: Response) => {
+  try {
+    const { bookingId } = req.params;
+    const list = Array.isArray(req.body?.snapshots) ? req.body.snapshots : null;
+    if (!list || list.length === 0) {
+      return res.status(400).json({ error: '`snapshots` must be a non-empty array' });
+    }
+    if (list.length > 50) {
+      return res.status(400).json({ error: 'Too many snapshots in one batch (max 50)' });
+    }
+
+    const booking = await db.query.bookings.findFirst({ where: eq(bookings.id, bookingId) });
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+    const results: any[] = [];
+    for (const item of list) {
+      const { id, title, scene, imageUrl, authorName, authorRole, createdBy, timestamp } = item || {};
+      if (!scene || typeof scene !== 'string') {
+        return res.status(400).json({ error: 'Each snapshot requires a `scene` string' });
+      }
+      const snapshotId = id || createId();
+      const inserted = await db.insert(whiteboardSnapshots).values({
+        id: snapshotId,
+        bookingId,
+        createdBy: createdBy || null,
+        title: title || 'Board Snapshot',
+        scene,
+        imageUrl: imageUrl || null,
+        authorName: authorName || null,
+        authorRole: authorRole || null,
+      }).onConflictDoNothing().returning();
+      const result = inserted[0] || await db.query.whiteboardSnapshots.findFirst({
+        where: eq(whiteboardSnapshots.id, snapshotId),
+      });
+      if (result) {
+        results.push({
+          id: result.id,
+          title: result.title,
+          scene: result.scene,
+          imageUrl: result.imageUrl,
+          timestamp: timestamp || result.createdAt?.toISOString(),
+          authorName: result.authorName,
+          authorRole: result.authorRole,
+          createdAt: result.createdAt?.toISOString(),
+        });
+      }
+    }
+
+    res.status(201).json({ saved: results.length, snapshots: results });
+  } catch (err: any) {
+    logger.error({ err }, 'Post whiteboard snapshots (batch) error');
+    res.status(500).json({ error: 'Failed to save whiteboard snapshots' });
+  }
+};
+
 // GET /sessions/:bookingId/whiteboard/snapshots — list snapshots for a booking
 export const getWhiteboardSnapshots = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -521,6 +577,38 @@ const replaceNoteSet = async (
     }
     return tx.query.sessionNotes.findMany({ where: scope, limit: MAX_NOTES * 2 });
   });
+};
+
+// PUT /sessions/:bookingId/notes — batch replace personal and/or shared in one request
+export const putSessionNotes = async (req: Request, res: Response) => {
+  try {
+    const { bookingId } = req.params;
+    const participant = await resolveNotesParticipant(req, res, bookingId);
+    if (!participant) return;
+
+    const { personalNotes, sharedNotes } = req.body || {};
+    let personalResult: ReturnType<typeof toNoteResponse>[] | undefined;
+    let sharedResult: ReturnType<typeof toNoteResponse>[] | undefined;
+
+    if (personalNotes !== undefined) {
+      const parsed = sanitizeNotesInput(personalNotes);
+      if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+      const saved = await replaceNoteSet(bookingId, 'personal', participant.ownerId, parsed.notes);
+      personalResult = saved.map(toNoteResponse);
+    }
+
+    if (sharedNotes !== undefined) {
+      const parsed = sanitizeNotesInput(sharedNotes);
+      if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+      const saved = await replaceNoteSet(bookingId, 'shared', participant.ownerId, parsed.notes);
+      sharedResult = saved.map(toNoteResponse);
+    }
+
+    res.status(200).json({ personalNotes: personalResult, sharedNotes: sharedResult });
+  } catch (err: any) {
+    logger.error({ err }, 'Put session notes (batch) error');
+    res.status(500).json({ error: 'Failed to save notes' });
+  }
 };
 
 // PUT /sessions/:bookingId/notes/personal — replace the caller's personal notes

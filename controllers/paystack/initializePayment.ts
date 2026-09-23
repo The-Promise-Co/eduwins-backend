@@ -103,16 +103,17 @@ export const initializePayment = async (req: AuthenticatedRequest, res: Response
       return res.status(410).json({ error: 'Payment window has expired and this booking was cancelled' });
     }
 
-    // Platform policy: Paystack processing fees are pushed to the customer.
-    // The parent is charged total + fee so the merchant always nets the full
-    // booking total and splits are computed on that exact figure.
+    // Pass only the actual booking total to Paystack. The dashboard
+    // "Pass fees to customers" setting adds Paystack's fee at checkout —
+    // marking up here too would charge fees twice. processingFee below is
+    // a UI estimate only; Paystack decides the real fee at checkout.
     const totalAmount = Number(booking.totalAmount || 0);
     if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
       return res.status(400).json({ error: 'This booking total is not available' });
     }
     const processingFee = calculatePaystackFee(totalAmount);
-    const expectedCharge = totalAmount + processingFee;
-    if (Number(amount) !== expectedCharge) {
+    const estimatedCharge = totalAmount + processingFee;
+    if (Number(amount) !== totalAmount) {
       return res.status(400).json({ error: 'Invalid booking payment amount' });
     }
 
@@ -129,16 +130,16 @@ export const initializePayment = async (req: AuthenticatedRequest, res: Response
 
       const data = await initializePaystackTransaction({
         email,
-        amount: Number(amount),
+        amount: totalAmount,
         currency,
         reference,
         callback_url: callback_url || `${process.env.FRONTEND_URL}/bookings/payment/confirm`,
         metadata,
       });
 
-      log.info({ userId, bookingId: booking.id, reference: data.reference || reference, amount: Number(amount), currency: currency || 'NGN', provider: 'paystack', hasAuthorizationUrl: Boolean(data.authorizationUrl) }, 'payment.initialize_succeeded');
+      log.info({ userId, bookingId: booking.id, reference: data.reference || reference, amount: totalAmount, currency: currency || 'NGN', provider: 'paystack', hasAuthorizationUrl: Boolean(data.authorizationUrl) }, 'payment.initialize_succeeded');
 
-      return res.json({ ...data, totalAmount, processingFee, chargeAmount: expectedCharge });
+      return res.json({ ...data, totalAmount, processingFee, chargeAmount: estimatedCharge });
     } catch (err: any) {
       log.error({ err, userId, bookingId: booking.id, reference, amount: Number(amount), currency: currency || 'NGN', provider: 'paystack', providerError: err.response?.data }, 'payment.initialize_failed');
       return res.status(500).json({ error: 'Payment initialization failed' });
@@ -162,14 +163,14 @@ export const initializePayment = async (req: AuthenticatedRequest, res: Response
       return res.status(400).json({ error: 'This course is free. Use the enroll endpoint instead.' });
     }
 
-    // Same policy as bookings: fees pushed to the customer so the merchant
-    // nets the full course price and splits run on that exact figure.
+    // Same as bookings: send only the course price — Paystack's pass-fees
+    // setting adds the fee at checkout. courseFee is a UI estimate only.
     const coursePrice = Number(course.price || 0);
     if (coursePrice <= 0) {
       return res.status(400).json({ error: 'This course price is not available' });
     }
     const courseFee = calculatePaystackFee(coursePrice);
-    if (Number(amount) !== coursePrice + courseFee) {
+    if (Number(amount) !== coursePrice) {
       return res.status(400).json({ error: 'Invalid course payment amount' });
     }
 
@@ -234,9 +235,9 @@ export const initializePayment = async (req: AuthenticatedRequest, res: Response
   }
 };
 
-// GET /paystack/quote?booking_id= or ?course_id= — fee breakdown for the
-// payment UI. The customer is charged price + fee; the merchant always nets
-// the full price.
+// GET /paystack/quote?booking_id= or ?course_id= — display-only fee estimate
+// for the payment UI. The amount sent to Paystack is always the bare cost;
+// Paystack adds its real fee at checkout via "Pass fees to customers".
 export const getBookingQuote = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const courseId = (req.query.course_id as string) || '';
