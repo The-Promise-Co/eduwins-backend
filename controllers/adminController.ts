@@ -162,7 +162,6 @@ export const listVettingQueue = async (req: AuthenticatedRequest, res: Response)
       photoUrl: teacherProfiles.photoUrl,
       videoVerified: teacherProfiles.videoVerified,
       isAdminApproved: teacherProfiles.isAdminApproved,
-      isVerified: teacherProfiles.isVerified,
       qualification: teacherProfiles.highestDegree,
       subjects: teacherProfiles.subjects,
       yearsExperience: teacherProfiles.yearsOfExperience,
@@ -204,7 +203,6 @@ export const processVetting = async (req: AuthenticatedRequest, res: Response) =
     await db.update(teacherProfiles)
       .set({
         isAdminApproved: action === 'approve',
-        isVerified: action === 'approve',
         updatedAt: new Date(),
       })
       .where(eq(teacherProfiles.userId, teacherId));
@@ -471,7 +469,6 @@ export const listAdminUsers = async (req: AuthenticatedRequest, res: Response) =
       email: users.email,
       fullName: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
       role: users.role,
-      isVerified: users.isVerified,
       status: users.status,
       createdAt: users.createdAt,
     })
@@ -632,7 +629,6 @@ export const listAllTeachers = async (req: AuthenticatedRequest, res: Response) 
       locationLga: teacherProfiles.locationLga,
       locationArea: teacherProfiles.locationArea,
       isAdminApproved: teacherProfiles.isAdminApproved,
-      isVerified: teacherProfiles.isVerified,
       deletedAt: users.deletedAt,
       status: users.status,
       createdAt: users.createdAt,
@@ -709,7 +705,6 @@ export const getTeacherDetail = async (req: AuthenticatedRequest, res: Response)
       locationLga: teacherProfiles.locationLga,
       locationArea: teacherProfiles.locationArea,
       isAdminApproved: teacherProfiles.isAdminApproved,
-      isVerified: teacherProfiles.isVerified,
       idVerified: teacherProfiles.idVerified,
       videoVerified: teacherProfiles.videoVerified,
       languages: teacherProfiles.languages,
@@ -760,7 +755,7 @@ export const getTeacherDetail = async (req: AuthenticatedRequest, res: Response)
 export const updateTeacherStatus = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { isAdminApproved, isVerified, idVerified } = req.body;
+    const { isAdminApproved, idVerified } = req.body;
 
     const existing = await db.query.teacherProfiles.findFirst({
       where: eq(teacherProfiles.userId, id),
@@ -771,7 +766,6 @@ export const updateTeacherStatus = async (req: AuthenticatedRequest, res: Respon
 
     const updateData: any = { updatedAt: new Date() };
     if (isAdminApproved !== undefined) updateData.isAdminApproved = isAdminApproved;
-    if (isVerified !== undefined) updateData.isVerified = isVerified;
     if (idVerified !== undefined) updateData.idVerified = idVerified;
 
     const [updated] = await db.update(teacherProfiles)
@@ -825,7 +819,7 @@ export const listAdminParents = async (req: AuthenticatedRequest, res: Response)
       fullName: sql<string>`${users.firstName} || ' ' || ${users.lastName}`,
       email: users.email,
       phone: users.phone,
-      isVerified: users.isVerified,
+      emailVerified: users.emailVerified,
       status: users.status,
       createdAt: users.createdAt,
       childrenCount: sql<number>`(SELECT count(*)::int FROM "children" WHERE "children"."parent_id" = "users"."id")`,
@@ -854,7 +848,7 @@ export const getAdminParentDetail = async (req: AuthenticatedRequest, res: Respo
       email: users.email,
       phone: users.phone,
       photoUrl: users.photoUrl,
-      isVerified: users.isVerified,
+      emailVerified: users.emailVerified,
       status: users.status,
       createdAt: users.createdAt,
     })

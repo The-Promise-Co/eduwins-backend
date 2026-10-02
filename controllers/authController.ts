@@ -227,7 +227,6 @@ export const register = async (req: Request, res: Response) => {
       firstName,
       lastName,
       role,
-      isVerified: false,
       trustScore: 0,
       referralCode: generatedReferralCode,
       referralCount: 0,
@@ -322,7 +321,6 @@ export const googleRegister = async (req: Request, res: Response) => {
       firstName,
       lastName,
       role,
-      isVerified: true,
       emailVerified: true,
       trustScore: 0,
       referralCode: generatedReferralCode,
@@ -386,9 +384,9 @@ export const googleLogin = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Account has been deactivated' });
     }
 
-    if (!user.isVerified) {
+    if (!user.emailVerified) {
       await db.update(users)
-        .set({ isVerified: true, emailVerified: true, photoUrl: user.photoUrl || googleUser.picture || null })
+        .set({ emailVerified: true, photoUrl: user.photoUrl || googleUser.picture || null })
         .where(eq(users.id, user.id));
 
       if (user.role === 'teacher') {
@@ -416,7 +414,7 @@ isAdminApproved: false,
       }
     }
 
-    const authUser = { ...user, isVerified: true, photoUrl: user.photoUrl || googleUser.picture || null };
+    const authUser = { ...user, photoUrl: user.photoUrl || googleUser.picture || null };
     res.json(await buildAuthPayload(authUser));
     logger.info({ userId: user.id, role: user.role }, 'User logged in with Google successfully');
   } catch (err: any) {
@@ -468,7 +466,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
 
     // Mark as verified
     await db.update(users)
-      .set({ isVerified: true, emailVerified: true })
+      .set({ emailVerified: true })
       .where(eq(users.id, user.id));
 
     // Mark token as used
@@ -548,7 +546,7 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    if (!user.isVerified) {
+    if (!user.emailVerified) {
       const verificationToken = crypto.randomBytes(32).toString('hex');
       const otpExpiry = new Date(Date.now() + 15 * 60 * 1000);
       const otp = generateOTP();
@@ -649,7 +647,7 @@ export const resendOtp = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'User not found.' });
     }
 
-    if (user.isVerified) {
+    if (user.emailVerified) {
       return res.status(400).json({ error: 'User is already verified.' });
     }
 
@@ -717,7 +715,7 @@ export const getProfile = async (req: any, res: Response) => {
       idVerified: teacherProfile.idVerified,
       photo: teacherProfile.photoUrl,
       videoVerified: teacherProfile.videoVerified,
-      isVerified: teacherProfile.isVerified,
+      isAdminApproved: teacherProfile.isAdminApproved,
     } : null;
 
     res.json({

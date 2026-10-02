@@ -52,7 +52,6 @@ export const teacherProfiles = pgTable('teacher_profiles', {
         .references(() => users.id),
 
     isAdminApproved: boolean('is_admin_approved').default(false).notNull(),
-    isVerified: boolean('is_verified').default(false).notNull(),
     idVerified: boolean('id_verified').default(false).notNull(),
     searchRank: varchar('search_rank', { length: 50 }).default('normal').notNull(),
     ratingAvg: decimal('rating_avg', { precision: 3, scale: 2 }).default('0').notNull(),

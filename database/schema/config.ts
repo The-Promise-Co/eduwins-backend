@@ -11,14 +11,20 @@ export const configValueTypeEnum = pgEnum('config_value_type', [
   'percentage',
 ]);
 
+export const configContextEnum = pgEnum('config_context', [
+  'course',
+  'booking',
+]);
+
 export const platformConfigs = pgTable('platform_configs', {
   id: varchar('id', { length: 255 }).primaryKey(),
   key: varchar('key', { length: 100 }).notNull().unique(),
   label: varchar('label', { length: 255 }).notNull(),
+  context: configContextEnum('context').notNull().default('course'),
   target: configSplitTargetEnum('target').notNull(),
   valueType: configValueTypeEnum('value_type').notNull(),
   value: decimal('value', { precision: 20, scale: 4 }).notNull(),
-  description: text('description'),
+  description: text('desc'),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

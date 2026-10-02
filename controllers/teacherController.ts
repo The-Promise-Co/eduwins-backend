@@ -31,7 +31,7 @@ export const getTeacherById = async (req: Request, res: Response) => {
       institution: teacherProfiles.institution,
       yearsOfExperience: teacherProfiles.yearsOfExperience,
       intro_video: teacherProfiles.videoVerified,
-      isVerified: teacherProfiles.isVerified,
+      isAdminApproved: teacherProfiles.isAdminApproved,
       educationLevels: teacherProfiles.educationLevels,
       sessionFormats: teacherProfiles.sessionFormats,
       deliveryModes: teacherProfiles.deliveryModes,
@@ -120,6 +120,7 @@ export const searchTeachers = async (req: Request, res: Response) => {
         locationLga: teacherProfiles.locationLga,
         locationArea: teacherProfiles.locationArea,
         location: sql<string>`COALESCE(${teacherProfiles.locationArea}, ${teacherProfiles.locationLga}, '')`,
+        isAdminApproved: teacherProfiles.isAdminApproved,
       })
         .from(teacherProfiles)
         .innerJoin(users, eq(teacherProfiles.userId, users.id))

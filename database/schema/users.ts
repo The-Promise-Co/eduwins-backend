@@ -16,7 +16,6 @@ export const users = pgTable('users', {
   firstName: varchar('first_name', { length: 255 }).notNull(),
   lastName: varchar('last_name', { length: 255 }).notNull(),
   role: varchar('role', { length: 50 }).notNull(), // 'teacher', 'parent', 'admin'
-  isVerified: boolean('is_verified').default(false),
   emailVerified: boolean('email_verified').default(false).notNull(),
   phoneVerified: boolean('phone_verified').default(false).notNull(),
   trustScore: integer('trust_score').default(0),
