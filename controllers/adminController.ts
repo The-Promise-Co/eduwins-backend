@@ -21,6 +21,7 @@ import {
 import { eq, sql, count, and, desc, isNull, or, ilike, asc } from 'drizzle-orm';
 import logger from '../utils/logger';
 import { emailService } from '../utils/emailSender';
+import { sanitizeBroadcastHtml, textToBroadcastHtml, renderBroadcastEmail, htmlToText } from '../utils/html';
 import { calculateCourseSplits } from './paystack/verifyPayment';
 import { settleBookingEscrow } from '../services/bookingSettlementService';
 
@@ -1039,26 +1040,24 @@ export const emailTeacher = async (req: AuthenticatedRequest, res: Response) => 
       return res.status(404).json({ error: 'Teacher not found' });
     }
 
-    const escapeHtml = (str: string) =>
-      str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    if (!emailService.isConfigured()) {
+      return res.status(400).json({ error: 'Email provider is not configured on this server' });
+    }
 
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #111827;">
-        <div style="background: #001A72; border-radius: 12px 12px 0 0; padding: 20px 24px;">
-          <h2 style="color: #ffffff; margin: 0; font-size: 18px;">EduWins</h2>
-        </div>
-        <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; padding: 24px;">
-          <p style="margin: 0 0 16px; font-size: 14px;">Hello ${user.firstName},</p>
-          <p style="margin: 0 0 16px; white-space: pre-wrap; font-size: 14px; color: #374151;">${escapeHtml(message)}</p>
-          <p style="margin: 24px 0 0; font-size: 12px; color: #6b7280;">— The EduWins Admin Team</p>
-        </div>
-      </div>
-    `;
+    // Same shell as admin broadcasts, so 1:1 and bulk mail can never diverge.
+    const bodyHtml = sanitizeBroadcastHtml(textToBroadcastHtml(String(message)));
+    const html = renderBroadcastEmail(emailService.templatesDir, {
+      bodyHtml,
+      firstName: user.firstName,
+      roleLabel: 'tutor',
+    });
 
     await emailService.sendEmail({
       to: user.email,
       subject,
       html,
+      text: htmlToText(html),
+      replyTo: process.env.EMAIL_REPLY_TO || undefined,
     });
 
     res.json({ message: 'Email sent to teacher', to: user.email });

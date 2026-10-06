@@ -47,9 +47,10 @@ export async function getConversations(userId: string) {
         })
       );
 
-      // Get last message (only for accepted conversations)
+      // Get last message (accepted conversations, and pending ones so the
+      // request note previews in the conversation list)
       let lastMessage = null;
-      if (conv.status === 'accepted') {
+      if (conv.status === 'accepted' || conv.status === 'pending') {
         lastMessage = await db.query.messages.findFirst({
           where: eq(messages.conversationId, convId),
           orderBy: [desc(messages.createdAt)],
@@ -108,11 +109,12 @@ export async function getConversations(userId: string) {
 
 // ── Get messages for a conversation ──────────────────────────────
 export async function getMessages(conversationId: string, userId: string, before?: string, limit = 50) {
-  // Only allow messages for accepted conversations
+  // Allow messages for accepted conversations, and for pending ones so both
+  // parties can see the request's first message before a decision is made
   const conv = await db.query.conversations.findFirst({
     where: eq(conversations.id, conversationId),
   });
-  if (!conv || conv.status !== 'accepted') {
+  if (!conv || (conv.status !== 'accepted' && conv.status !== 'pending')) {
     return [];
   }
 
@@ -183,14 +185,25 @@ export async function lookupByEmail(email: string) {
 }
 
 // ── Send conversation request ────────────────────────────────────
-export async function sendConversationRequest(senderId: string, recipientEmail: string) {
-  // Look up recipient by email
-  const recipient = await db.query.users.findFirst({
-    where: eq(users.email, recipientEmail.toLowerCase().trim()),
-  });
+export async function sendConversationRequest(
+  senderId: string,
+  recipientEmail?: string | null,
+  recipientId?: string | null,
+  note?: string | null
+) {
+  const trimmedNote = typeof note === 'string' && note.trim() ? note.trim().slice(0, 500) : null;
+
+  // Look up recipient by id (preferred) or email
+  const recipient = recipientId
+    ? await db.query.users.findFirst({ where: eq(users.id, recipientId) })
+    : recipientEmail && recipientEmail.includes('@')
+      ? await db.query.users.findFirst({
+          where: eq(users.email, recipientEmail.toLowerCase().trim()),
+        })
+      : null;
 
   if (!recipient) {
-    return { error: 'No user found with that email' };
+    return { error: recipientId ? 'No user found with that id' : 'No user found with that email' };
   }
 
   if (recipient.id === senderId) {
@@ -253,6 +266,17 @@ export async function sendConversationRequest(senderId: string, recipientEmail: 
     { id: createId(), conversationId: convId, userId: senderId },
     { id: createId(), conversationId: convId, userId: recipient.id },
   ]);
+
+  // The optional note becomes the conversation's first message
+  if (trimmedNote) {
+    await db.insert(messages).values({
+      id: createId(),
+      conversationId: convId,
+      senderId,
+      content: trimmedNote,
+      type: 'text',
+    });
+  }
 
   const participants = [
     {

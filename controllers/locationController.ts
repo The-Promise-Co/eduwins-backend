@@ -6,7 +6,7 @@ interface State {
   lgas: string[];
 }
 
-const NIGERIAN_STATES: State[] = [
+export const NIGERIAN_STATES: State[] = [
   { name: "Abia", lgas: ["Aba North","Aba South","Arochukwu","Bende","Ikwuano","Isiala Ngwa North","Isiala Ngwa South","Isuikwuato","Obi Ngwa","Ohafia","Osisioma","Umuahia North","Umuahia South","Ugwunagbo","Ukwa East","Ukwa West"] },
   { name: "Adamawa", lgas: ["Demsa","Fufure","Ganye","Gayuk","Girei","Gombi","Hong","Jada","Lamurde","Madagali","Maiha","Mayo Belwa","Michika","Mubi North","Mubi South","Numan","Shelleng","Song","Toungo","Yola North","Yola South"] },
   { name: "Akwa Ibom", lgas: ["Abak","Eastern Obolo","Eket","Esit Eket","Essien Udim","Etim Ekpo","Etinan","Ibeno","Ibesikpo Asutan","Ibiono Ibom","Ika","Ikono","Ikot Ekpene","Ini","Ituk Mbang","Mbo","Mkpat Enin","Nsit Atai","Nsit Ibom","Nsit Ubium","Obot Akara","Okobo","Onna","Oron","Oruk Anam","Ukanafun","Uruan","Urue Offong/Oruko","Uyo"] },

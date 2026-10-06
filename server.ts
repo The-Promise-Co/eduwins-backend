@@ -45,6 +45,7 @@ import logger from './utils/logger';
 import { requestLogger } from './middleware/requestLogger';
 import { startBookingExpiryScheduler } from './services/bookingExpiryScheduler';
 import { startSessionCompletionScheduler } from './services/sessionCompletionScheduler';
+import { markStaleBroadcastsInterrupted } from './services/broadcastSender';
 
 const app = express();
 // initRedis();
@@ -205,6 +206,11 @@ logger.info({ port: PORT, host: HOST, publicApiUrl: PUBLIC_API_URL, isProduction
 
 startBookingExpiryScheduler();
 startSessionCompletionScheduler();
+
+// In-process broadcast sends die with the process; flag them as resumable.
+markStaleBroadcastsInterrupted().catch((err) => {
+  logger.error({ err }, 'broadcast.boot_reset_failed');
+});
 
 // Create HTTP server and attach Socket.IO
 const httpServer = http.createServer(app);

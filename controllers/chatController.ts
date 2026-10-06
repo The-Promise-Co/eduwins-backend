@@ -50,13 +50,13 @@ export const getConversationMessages = async (req: AuthenticatedRequest, res: Re
 // ── Send conversation request ────────────────────────────────────
 export const sendRequest = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { email } = req.body;
+    const { email, userId, note } = req.body;
 
-    if (!email || !email.includes('@')) {
-      return res.status(400).json({ error: 'A valid email address is required' });
+    if (!userId && (!email || !email.includes('@'))) {
+      return res.status(400).json({ error: 'A valid email address or user id is required' });
     }
 
-    const result = await sendConversationRequest(req.user.id, email);
+    const result = await sendConversationRequest(req.user.id, email, userId, note);
 
     if ('error' in result) {
       return res.status(400).json({ error: result.error });

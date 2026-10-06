@@ -13,3 +13,4 @@ export * from './schema/wallets';
 export * from './schema/chat';
 export * from './schema/sessions';
 export * from './schema/assessments';
+export * from './schema/broadcasts';

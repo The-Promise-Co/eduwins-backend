@@ -11,6 +11,8 @@ export interface EmailOptions {
   to: string;
   subject: string;
   html: string;
+  text?: string;
+  replyTo?: string;
   from?: string;
   fromName?: string;
 }
@@ -46,6 +48,8 @@ class BrevoProvider implements EmailProvider {
     const result = await this.brevo.transactionalEmails.sendTransacEmail({
       subject: options.subject,
       htmlContent: options.html,
+      ...(options.text ? { textContent: options.text } : {}),
+      ...(options.replyTo ? { replyTo: { email: options.replyTo } } : {}),
       sender: {
         name: options.fromName || process.env.EMAIL_FROM_NAME || 'EduWins',
         email: options.from || process.env.EMAIL_FROM || ''
@@ -79,6 +83,8 @@ class GmailProvider implements EmailProvider {
       to: options.to,
       subject: options.subject,
       html: options.html,
+      ...(options.text ? { text: options.text } : {}),
+      ...(options.replyTo ? { replyTo: options.replyTo } : {}),
     };
 
     const info = await this.transporter.sendMail(mailOptions);
@@ -124,13 +130,32 @@ export class EmailService {
 
     let content = fs.readFileSync(filePath, 'utf8');
 
-    // Replace placeholders {{key}} with data[key]
+    // Replace placeholders {{key}} with data[key].
+    // split/join (not String.replace) so '$&' / '$1' inside values stays literal.
     Object.keys(data).forEach(key => {
-      const placeholder = new RegExp(`{{${key}}}`, 'g');
-      content = content.replace(placeholder, data[key]);
+      content = content.split(`{{${key}}}`).join(data[key] ?? '');
     });
 
     return content;
+  }
+
+  /**
+   * Templates directory (used by the broadcast renderer in utils/html.ts)
+   */
+  get templatesDir(): string {
+    return this.templatesPath;
+  }
+
+  /**
+   * Whether the active provider has credentials. Bulk sends must fail fast on
+   * this instead of queueing hundreds of recipients that can never be mailed.
+   */
+  isConfigured(): boolean {
+    const providerType = (process.env.EMAIL_PROVIDER || 'brevo').toLowerCase();
+    if (providerType === 'gmail') {
+      return Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASSWORD);
+    }
+    return Boolean(process.env.BREVO_API_KEY && process.env.EMAIL_FROM);
   }
 
   /**

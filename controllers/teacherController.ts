@@ -76,6 +76,13 @@ export const searchTeachers = async (req: Request, res: Response) => {
       eq(users.emailVerified, true),
       eq(users.role, 'teacher'),
       eq(users.status, 'active'),
+      // Only show tutors with complete profiles: photo, subjects, price, and location
+      sql`btrim(${teacherProfiles.photoUrl}) <> ''`,
+      sql`COALESCE(array_length(${teacherProfiles.subjects}, 1), 0) > 0`,
+      sql`${teacherProfiles.baseHourlyRate} > 0`,
+      sql`btrim(${teacherProfiles.locationState}) <> ''`,
+      sql`btrim(${teacherProfiles.locationLga}) <> ''`,
+      sql`btrim(${teacherProfiles.locationArea}) <> ''`,
     ];
 
     if (subject && typeof subject === 'string') {

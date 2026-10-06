@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import adminAuthMiddleware from '../middleware/adminAuth';
 import {
   listVettingQueue,
@@ -30,6 +31,22 @@ import {
   getAdminParentDetail,
   listParentBookings,
 } from '../controllers/adminController';
+import {
+  getBroadcastSegmentOptions,
+  previewBroadcastAudience,
+  previewBroadcastEmail,
+  sendBroadcastTestEmail,
+  listMessageGroups,
+  createMessageGroup,
+  getMessageGroup,
+  cancelMessageGroup,
+  listBroadcasts,
+  getBroadcast,
+  createBroadcast,
+  cancelBroadcast,
+  retryBroadcast,
+  resumeBroadcast,
+} from '../controllers/adminBroadcastController';
 
 const router = express.Router();
 
@@ -86,5 +103,38 @@ router.get('/parents/:id/bookings', adminAuthMiddleware as any, listParentBookin
 
 // Booking detail
 router.get('/bookings/:id', adminAuthMiddleware as any, getBookingDetail as any);
+
+// ── Broadcast messaging (email only) ───────────────────────────────────────
+// Bulk sends are throttled per admin on top of the global /api limiter.
+const broadcastLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many broadcast sends, please try again later.' },
+  keyGenerator: (req) => (req as any).admin?.id || req.ip || 'unknown',
+});
+
+const sendPreviewLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: { error: 'Too many audience previews, slow down.' },
+  keyGenerator: (req) => (req as any).admin?.id || req.ip || 'unknown',
+});
+
+router.get('/broadcasts/segment-options', adminAuthMiddleware as any, getBroadcastSegmentOptions as any);
+router.post('/broadcasts/count', adminAuthMiddleware as any, sendPreviewLimiter as any, previewBroadcastAudience as any);
+router.post('/broadcasts/preview', adminAuthMiddleware as any, sendPreviewLimiter as any, previewBroadcastEmail as any);
+router.post('/broadcasts/test', adminAuthMiddleware as any, broadcastLimiter as any, sendBroadcastTestEmail as any);
+
+router.get('/broadcasts', adminAuthMiddleware as any, listBroadcasts as any);
+router.post('/broadcasts', adminAuthMiddleware as any, broadcastLimiter as any, createBroadcast as any);
+router.get('/broadcasts/:id', adminAuthMiddleware as any, getBroadcast as any);
+router.post('/broadcasts/:id/cancel', adminAuthMiddleware as any, cancelBroadcast as any);
+router.post('/broadcasts/:id/retry-failed', adminAuthMiddleware as any, broadcastLimiter as any, retryBroadcast as any);
+router.post('/broadcasts/:id/resume', adminAuthMiddleware as any, broadcastLimiter as any, resumeBroadcast as any);
+
+router.get('/message-groups', adminAuthMiddleware as any, listMessageGroups as any);
+router.post('/message-groups', adminAuthMiddleware as any, createMessageGroup as any);
+router.get('/message-groups/:id', adminAuthMiddleware as any, getMessageGroup as any);
+router.post('/message-groups/:id/cancel', adminAuthMiddleware as any, cancelMessageGroup as any);
 
 export default router;
