@@ -36,6 +36,7 @@ import chatRoutes from './routes/chat';
 import assessmentRoutes, { attemptsRouter } from './routes/assessments';
 import adminAuthRoutes from './routes/adminAuth';
 import locationRoutes from './routes/locations';
+import teamMemberRoutes from './routes/teamMembers';
 import { livekitRouter, sessionRouter } from './routes/sessions';
 
 import authenticateToken from './middleware/auth';
@@ -174,6 +175,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/assessments', assessmentRoutes);
 app.use('/api/attempts', attemptsRouter);
 app.use('/api/locations', locationRoutes);
+app.use('/api/team-members', teamMemberRoutes);
 app.use('/api/sessions', sessionRouter);
 app.use('/api/livekit', livekitRouter);
 app.use('/api/admin/auth', adminAuthRoutes);

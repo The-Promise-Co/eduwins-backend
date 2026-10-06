@@ -25,6 +25,7 @@ Booking payment: parent pays after tutor accept, funds held in escrow, auto-canc
 | 6 | Verify → `paid_escrow` + `paid_at` + notifications; webhook hardened | Done, uncommitted |
 | 7 | node-cron scheduler + `cancelExpiredAcceptedBookings` + defensive checks | Done, uncommitted |
 | 8 | Accepted/denied/auto-cancel email copy | Partial (`statusDetail` exists) |
+| 9 | Public About team member profiles + admin CRUD API | Done, uncommitted |
 
 ## Key files / routes
 - `controllers/bookingController.ts` — create/list/detail/accept/deny
@@ -42,6 +43,8 @@ Booking payment: parent pays after tutor accept, funds held in escrow, auto-canc
 - 2026-09-14: Phase 1 targeted schema check passed. Phase 2 targeted check passed.
 - 2026-09-14: Phase 3–5 implemented. Targeted `tsc` on booking + paystack + settings + schema files passed.
 - 2026-09-15: Phase 6–7 implemented. Targeted `tsc` on all new services and controllers passed. Frontend `tsc` passed.
+- 2026-10-04: Phase 9 team member schema, public/admin API, and migration added. Backend `tsc --noEmit` passed.
+- 2026-10-04: Frontend and admin `tsc --noEmit --incremental false` passed. Production builds were attempted; Next.js workers exited with SIGBUS in this environment.
 
 ## Next steps
 - Phase 8: email templates for accepted/denied/auto-cancel.

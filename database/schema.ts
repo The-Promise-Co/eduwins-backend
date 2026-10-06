@@ -14,3 +14,4 @@ export * from './schema/chat';
 export * from './schema/sessions';
 export * from './schema/assessments';
 export * from './schema/broadcasts';
+export * from './schema/teamMembers';
