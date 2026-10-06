@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import authenticateToken from '../middleware/auth';
+import adminAuthMiddleware from '../middleware/adminAuth';
 import {
   uploadHeadshot,
   uploadVideoIntro,
@@ -69,7 +70,7 @@ router.get('/profile-completion', authenticateToken, getProfileCompletion as any
  * Cloudflare R2 Presigned Upload URL
  * Returns a presigned URL and public URL so the frontend can upload directly to Cloudflare R2
  */
-router.post('/sign', authenticateToken, async (req, res) => {
+const signUpload = async (req: express.Request, res: express.Response) => {
   const { filename, contentType, folder } = req.body;
 
   if (!filename || !contentType) {
@@ -83,7 +84,10 @@ router.post('/sign', authenticateToken, async (req, res) => {
     logger.error(err, 'Failed to generate presigned upload URL');
     res.status(500).json({ error: 'Failed to generate upload URL' });
   }
-});
+};
+
+router.post('/sign', authenticateToken, signUpload);
+router.post('/admin/sign', adminAuthMiddleware, signUpload);
 
 
 export default router;

@@ -36,6 +36,55 @@ interface AuthenticatedRequest extends Request {
 const VALID_CONFIG_TARGETS = ['tutor', 'welfare', 'platform_fee'];
 const VALID_CONFIG_VALUE_TYPES = ['flat_fee', 'percentage'];
 
+type DirectEmailTarget = 'teacher' | 'parent';
+
+const sendBrandedAdminEmail = async (
+  userId: string,
+  target: DirectEmailTarget,
+  subjectInput: unknown,
+  messageInput: unknown,
+): Promise<{ ok: true; to: string } | { ok: false; status: number; error: string }> => {
+  const subject = String(subjectInput || '').trim();
+  const message = String(messageInput || '');
+  if (!subject || !message.trim()) {
+    return { ok: false, status: 400, error: 'subject and message are required' };
+  }
+
+  const user = await db.query.users.findFirst({
+    where: and(eq(users.id, userId), eq(users.role, target), isNull(users.deletedAt)),
+  });
+  if (!user) {
+    return { ok: false, status: 404, error: target === 'teacher' ? 'Teacher not found' : 'Parent not found' };
+  }
+
+  if (!emailService.isConfigured()) {
+    return { ok: false, status: 400, error: 'Email provider is not configured on this server' };
+  }
+
+  // Keep legacy plain-text callers working while accepting Tiptap HTML.
+  const hasRichTextMarkup = /<\/?(?:p|h[1-6]|ul|ol|li|blockquote|strong|b|em|i|u|s|a|br)\b/i.test(message);
+  const bodyHtml = sanitizeBroadcastHtml(hasRichTextMarkup ? message : textToBroadcastHtml(message));
+  if (!bodyHtml) {
+    return { ok: false, status: 400, error: 'message has no usable content after sanitizing' };
+  }
+
+  const html = renderBroadcastEmail(emailService.templatesDir, {
+    bodyHtml,
+    firstName: user.firstName,
+    roleLabel: target === 'teacher' ? 'tutor' : 'parent',
+  });
+
+  await emailService.sendEmail({
+    to: user.email,
+    subject,
+    html,
+    text: htmlToText(html),
+    replyTo: process.env.EMAIL_REPLY_TO || undefined,
+  });
+
+  return { ok: true, to: user.email };
+};
+
 export const listPlatformConfigs = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const configs = await db.select().from(platformConfigs);
@@ -1028,41 +1077,22 @@ export const deleteUser = async (req: AuthenticatedRequest, res: Response) => {
 
 export const emailTeacher = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    const { subject, message } = req.body;
-
-    if (!subject || !message) {
-      return res.status(400).json({ error: 'subject and message are required' });
-    }
-
-    const user = await db.query.users.findFirst({ where: eq(users.id, id) });
-    if (!user) {
-      return res.status(404).json({ error: 'Teacher not found' });
-    }
-
-    if (!emailService.isConfigured()) {
-      return res.status(400).json({ error: 'Email provider is not configured on this server' });
-    }
-
-    // Same shell as admin broadcasts, so 1:1 and bulk mail can never diverge.
-    const bodyHtml = sanitizeBroadcastHtml(textToBroadcastHtml(String(message)));
-    const html = renderBroadcastEmail(emailService.templatesDir, {
-      bodyHtml,
-      firstName: user.firstName,
-      roleLabel: 'tutor',
-    });
-
-    await emailService.sendEmail({
-      to: user.email,
-      subject,
-      html,
-      text: htmlToText(html),
-      replyTo: process.env.EMAIL_REPLY_TO || undefined,
-    });
-
-    res.json({ message: 'Email sent to teacher', to: user.email });
+    const result = await sendBrandedAdminEmail(req.params.id, 'teacher', req.body?.subject, req.body?.message);
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    res.json({ message: 'Email sent to tutor', to: result.to });
   } catch (err: any) {
     (req.log || logger).error({ err, adminId: req.admin?.id, teacherId: req.params.id }, 'admin.teacher_email_failed');
     res.status(500).json({ error: 'Could not send email to teacher' });
+  }
+};
+
+export const emailParent = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await sendBrandedAdminEmail(req.params.id, 'parent', req.body?.subject, req.body?.message);
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    res.json({ message: 'Email sent to parent', to: result.to });
+  } catch (err: any) {
+    (req.log || logger).error({ err, adminId: req.admin?.id, parentId: req.params.id }, 'admin.parent_email_failed');
+    res.status(500).json({ error: 'Could not send email to parent' });
   }
 };

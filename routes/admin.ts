@@ -27,6 +27,7 @@ import {
   deleteUser,
   updateUserStatus,
   emailTeacher,
+  emailParent,
   listAdminParents,
   getAdminParentDetail,
   listParentBookings,
@@ -100,6 +101,7 @@ router.get('/teachers/:id/bookings', adminAuthMiddleware as any, listTeacherBook
 router.get('/parents', adminAuthMiddleware as any, listAdminParents as any);
 router.get('/parents/:id', adminAuthMiddleware as any, getAdminParentDetail as any);
 router.get('/parents/:id/bookings', adminAuthMiddleware as any, listParentBookings as any);
+router.post('/parents/:id/email', adminAuthMiddleware as any, emailParent as any);
 
 // Booking detail
 router.get('/bookings/:id', adminAuthMiddleware as any, getBookingDetail as any);
