@@ -9,6 +9,7 @@ import {
     text,
     timestamp,
     jsonb,
+    index,
 } from 'drizzle-orm/pg-core';
 import { users } from './users';
 
@@ -136,7 +137,9 @@ export const teacherProfiles = pgTable('teacher_profiles', {
 
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+    subjectsIdx: index('teacher_profiles_subjects_idx').using('gin', t.subjects),
+}));
 
 // ---------------------------------------------------------------------------
 // Types

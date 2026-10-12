@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { db } from '../database/db';
-import { users, teacherProfiles, teacherCertifications, teacherEducations } from '../database/schema';
+import { users, teacherProfiles, teacherCertifications, teacherEducations, subjects } from '../database/schema';
 import { eq, sql, ilike, or, and, ne } from 'drizzle-orm';
 import logger from '../utils/logger';
 
@@ -67,7 +67,7 @@ export const getTeacherById = async (req: Request, res: Response) => {
 
 export const searchTeachers = async (req: Request, res: Response) => {
   try {
-    const { subject, lga, maxRate, locationState, locationLga } = req.query;
+    const { search, lga, maxRate, locationState, locationLga } = req.query;
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const offset = (page - 1) * limit;
@@ -76,19 +76,39 @@ export const searchTeachers = async (req: Request, res: Response) => {
       eq(users.emailVerified, true),
       eq(users.role, 'teacher'),
       eq(users.status, 'active'),
-      // Only show tutors with complete profiles: photo, subjects, price, and location
       sql`btrim(${teacherProfiles.photoUrl}) <> ''`,
       sql`COALESCE(array_length(${teacherProfiles.subjects}, 1), 0) > 0`,
       sql`${teacherProfiles.baseHourlyRate} > 0`,
       sql`btrim(${teacherProfiles.locationState}) <> ''`,
       sql`btrim(${teacherProfiles.locationLga}) <> ''`,
-      sql`btrim(${teacherProfiles.locationArea}) <> ''`,
     ];
 
-    if (subject && typeof subject === 'string') {
-      conditions.push(
-        sql`${teacherProfiles.subjects} && ARRAY[${subject}]::text[]`
+    if (search && typeof search === 'string') {
+      const term = search.trim();
+
+      const matchedSubjects = await db.query.subjects.findMany({
+        where: ilike(subjects.name, `%${term}%`),
+        columns: { name: true },
+      });
+      const subjectNames = matchedSubjects.map((s) => s.name);
+
+      const nameCondition = ilike(
+        sql`CONCAT(${users.firstName}, ' ', ${users.lastName})`,
+        `%${term}%`
       );
+
+      let subjectCondition;
+      if (subjectNames.length > 0) {
+        const escapedNames = subjectNames.map((s) => `'${s.replace(/'/g, "''")}'`).join(',');
+        subjectCondition = sql`${teacherProfiles.subjects} && ARRAY[${escapedNames}]::text[]`;
+      } else {
+        subjectCondition = sql`EXISTS (
+          SELECT 1 FROM unnest(${teacherProfiles.subjects}) AS t(subj)
+          WHERE t.subj ILIKE ${`%${term}%`}
+        )`;
+      }
+
+      conditions.push(or(nameCondition, subjectCondition));
     }
 
     if (maxRate && typeof maxRate === 'string') {
