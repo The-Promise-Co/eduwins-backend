@@ -1,0 +1,1 @@
+CREATE INDEX "teacher_profiles_subjects_idx" ON "teacher_profiles" USING gin ("subjects");
