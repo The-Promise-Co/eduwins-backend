@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../database/db';
 import { users, teacherProfiles, teacherCertifications, teacherEducations, subjects } from '../database/schema';
-import { eq, sql, ilike, or, and, ne } from 'drizzle-orm';
+import { eq, sql, ilike, or, and, ne, type SQL } from 'drizzle-orm';
 import logger from '../utils/logger';
 
 export const getTeacherById = async (req: Request, res: Response) => {
@@ -95,20 +95,18 @@ export const searchTeachers = async (req: Request, res: Response) => {
       const nameCondition = ilike(
         sql`CONCAT(${users.firstName}, ' ', ${users.lastName})`,
         `%${term}%`
-      );
+      ) as SQL<unknown>;
 
-      let subjectCondition;
-      if (subjectNames.length > 0) {
-        const escapedNames = subjectNames.map((s) => `'${s.replace(/'/g, "''")}'`).join(',');
-        subjectCondition = sql`${teacherProfiles.subjects} && ARRAY[${escapedNames}]::text[]`;
-      } else {
-        subjectCondition = sql`EXISTS (
+      const subjectCondition: SQL<unknown> = subjectNames.length > 0
+        ? sql`${teacherProfiles.subjects} && ARRAY[${subjectNames
+            .map((s) => `'${s.replace(/'/g, "''")}'`)
+            .join(',')}]::text[]`
+        : sql`EXISTS (
           SELECT 1 FROM unnest(${teacherProfiles.subjects}) AS t(subj)
           WHERE t.subj ILIKE ${`%${term}%`}
         )`;
-      }
 
-      conditions.push(or(nameCondition, subjectCondition));
+      conditions.push(or(nameCondition, subjectCondition)!);
     }
 
     if (maxRate && typeof maxRate === 'string') {

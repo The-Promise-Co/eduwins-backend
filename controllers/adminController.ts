@@ -11,7 +11,6 @@ import {
   platformConfigs,
   wallets,
   bookings,
-  withdrawals,
   sessionEvents,
   whiteboardSnapshots,
   transactions,
@@ -559,29 +558,6 @@ export const updateUserStatus = async (req: AuthenticatedRequest, res: Response)
   } catch (err: any) {
     (req.log || logger).error({ err, adminId: req.admin?.id, userId: req.params.id }, 'admin.user_status_update_failed');
     res.status(500).json({ error: 'Could not update user status' });
-  }
-};
-
-export const listPendingWithdrawals = async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const result = await db.select({
-      id: withdrawals.id,
-      teacherId: withdrawals.teacherId,
-      teacherName: sql<string>`coalesce((SELECT "users"."first_name" || ' ' || "users"."last_name" FROM "users" WHERE "users"."id" = "withdrawals"."teacher_id"), 'Unknown')`,
-      amount: withdrawals.amount,
-      status: withdrawals.status,
-      bankName: withdrawals.bankCode,
-      accountNumber: withdrawals.accountNumber,
-      createdAt: withdrawals.createdAt,
-    })
-      .from(withdrawals)
-      .where(eq(withdrawals.status, 'pending'))
-      .orderBy(desc(withdrawals.createdAt));
-
-    res.json(result);
-  } catch (err: any) {
-    (req.log || logger).error({ err, adminId: req.admin?.id }, 'admin.pending_withdrawals_failed');
-    res.status(500).json({ error: 'Could not fetch pending withdrawals' });
   }
 };
 

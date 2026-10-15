@@ -15,7 +15,6 @@ import {
   listBookingsPending,
   listAllBookings,
   listAdminUsers,
-  listPendingWithdrawals,
   listDisputes,
   updateDispute,
   retryBookingSettlement,
@@ -48,6 +47,15 @@ import {
   retryBroadcast,
   resumeBroadcast,
 } from '../controllers/adminBroadcastController';
+import {
+  listPayouts,
+  getPayoutDetail,
+  approvePayout,
+  finalizePayout,
+  declinePayout,
+  cancelPayoutApproval,
+  getPaystackBalance,
+} from '../controllers/payoutAdminController';
 
 const router = express.Router();
 
@@ -74,8 +82,14 @@ router.get('/users', adminAuthMiddleware as any, listAdminUsers as any);
 router.put('/users/:id/status', adminAuthMiddleware as any, updateUserStatus as any);
 router.delete('/users/:id', adminAuthMiddleware as any, deleteUser as any);
 
-// Withdrawals
-router.get('/withdrawals-pending', adminAuthMiddleware as any, listPendingWithdrawals as any);
+// Payouts
+router.get('/payouts', adminAuthMiddleware as any, listPayouts as any);
+router.get('/payouts/balance', adminAuthMiddleware as any, getPaystackBalance as any);
+router.get('/payouts/:id', adminAuthMiddleware as any, getPayoutDetail as any);
+router.post('/payouts/:id/approve', adminAuthMiddleware as any, approvePayout as any);
+router.post('/payouts/:id/finalize', adminAuthMiddleware as any, finalizePayout as any);
+router.post('/payouts/:id/decline', adminAuthMiddleware as any, declinePayout as any);
+router.post('/payouts/:id/cancel', adminAuthMiddleware as any, cancelPayoutApproval as any);
 
 // Disputes
 router.get('/disputes', adminAuthMiddleware as any, listDisputes as any);

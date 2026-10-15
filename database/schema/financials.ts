@@ -12,23 +12,58 @@ import { InferSelectModel } from 'drizzle-orm';
 import { users } from './users';
 import { bookings } from './lessons';
 
-export const withdrawals = pgTable('withdrawals', {
+export const payoutRequests = pgTable('payout_requests', {
   id: varchar('id', { length: 255 }).primaryKey(),
   teacherId: varchar('teacher_id', { length: 255 }).references(() => users.id),
   amount: decimal('amount', { precision: 20, scale: 2 }).notNull(),
   netAmount: decimal('net_amount', { precision: 20, scale: 2 }),
   processingFee: decimal('processing_fee', { precision: 20, scale: 2 }),
   bankCode: varchar('bank_code', { length: 50 }),
+  bankName: varchar('bank_name', { length: 255 }),
   accountNumber: varchar('account_number', { length: 50 }),
   accountName: varchar('account_name', { length: 255 }),
+  recipientCode: varchar('recipient_code', { length: 255 }),
   narration: text('narration'),
-  status: varchar('status', { length: 50 }).default('pending'), // 'pending', 'processing', 'completed', 'failed', 'cancelled'
+  status: varchar('status', { length: 50 }).default('pending').notNull(), // 'pending', 'processing', 'completed', 'declined', 'failed'
+  approvedBy: varchar('approved_by', { length: 255 }),
+  approvedAt: timestamp('approved_at'),
+  approvedReason: text('approved_reason'),
+  declinedBy: varchar('declined_by', { length: 255 }),
+  declinedAt: timestamp('declined_at'),
+  declineReason: text('decline_reason'),
   paystackReference: varchar('paystack_reference', { length: 255 }).unique(),
+  transferCode: varchar('transfer_code', { length: 255 }),
   failureReason: text('failure_reason'),
-  month: varchar('month', { length: 7 }), // YYYY-MM
+  processedAt: timestamp('processed_at'),
   createdAt: timestamp('created_at').defaultNow(),
-  completedAt: timestamp('completed_at'),
-  cancelledAt: timestamp('cancelled_at'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const payoutAccounts = pgTable('payout_accounts', {
+  teacherId: varchar('teacher_id', { length: 255 }).primaryKey().references(() => users.id),
+  bankCode: varchar('bank_code', { length: 50 }).notNull(),
+  bankName: varchar('bank_name', { length: 255 }),
+  accountNumber: varchar('account_number', { length: 50 }).notNull(),
+  accountName: varchar('account_name', { length: 255 }).notNull(),
+  recipientCode: varchar('recipient_code', { length: 255 }),
+  lastChangedAt: timestamp('last_changed_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const payoutAccountChangeLogs = pgTable('payout_account_change_logs', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  teacherId: varchar('teacher_id', { length: 255 }).references(() => users.id),
+  oldBankCode: varchar('old_bank_code', { length: 50 }),
+  oldBankName: varchar('old_bank_name', { length: 255 }),
+  oldAccountNumber: varchar('old_account_number', { length: 50 }),
+  oldAccountName: varchar('old_account_name', { length: 255 }),
+  newBankCode: varchar('new_bank_code', { length: 50 }),
+  newBankName: varchar('new_bank_name', { length: 255 }),
+  newAccountNumber: varchar('new_account_number', { length: 50 }),
+  newAccountName: varchar('new_account_name', { length: 255 }),
+  changedAt: timestamp('changed_at').defaultNow().notNull(),
+  changedBy: varchar('changed_by', { length: 50 }).default('tutor').notNull(),
 });
 
 export const earnings = pgTable('earnings', {
@@ -121,7 +156,9 @@ export const notifications = pgTable('notifications', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-export type Withdrawal = InferSelectModel<typeof withdrawals>;
+export type PayoutRequest = InferSelectModel<typeof payoutRequests>;
+export type PayoutAccount = InferSelectModel<typeof payoutAccounts>;
+export type PayoutAccountChangeLog = InferSelectModel<typeof payoutAccountChangeLogs>;
 export type Transaction = InferSelectModel<typeof transactions>;
 export type Notification = InferSelectModel<typeof notifications>;
 export type Referral = InferSelectModel<typeof referrals>;

@@ -28,7 +28,9 @@ export const getMyWalletTransactions = async (req: AuthenticatedRequest, res: Re
   const log = req.log || logger;
 
   try {
-    const result = await getWalletTransactions(req.params.walletId, req.user.id);
+    const page = Math.max(1, parseInt(String(req.query.page), 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10) || 20));
+    const result = await getWalletTransactions(req.params.walletId, req.user.id, page, limit);
     if (!result) {
       log.warn({
         userId: req.user.id,

@@ -1,6 +1,6 @@
 import { db } from '../database/db';
 import { walletTransactions, wallets } from '../database/schema';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, count } from 'drizzle-orm';
 import logger from '../utils/logger';
 
 export type WalletType = 'main' | 'referrals' | 'welfare' | 'fees';
@@ -101,16 +101,36 @@ export const getTransactionsByReference = async (
     .orderBy(desc(walletTransactions.createdAt));
 };
 
-export const getWalletTransactions = async (walletId: string, userId?: string) => {
+export const getWalletTransactions = async (walletId: string, userId?: string, page = 1, limit = 20) => {
   const wallet = await db.query.wallets.findFirst({ where: eq(wallets.id, walletId) });
   if (!wallet || (userId && wallet.ownerId !== userId)) return null;
 
-  const transactions = await db.select()
-    .from(walletTransactions)
-    .where(eq(walletTransactions.walletId, walletId))
-    .orderBy(desc(walletTransactions.createdAt));
+  const offset = (page - 1) * limit;
 
-  return { wallet, transactions };
+  const [transactions, [totalResult]] = await Promise.all([
+    db.select()
+      .from(walletTransactions)
+      .where(eq(walletTransactions.walletId, walletId))
+      .orderBy(desc(walletTransactions.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: count() })
+      .from(walletTransactions)
+      .where(eq(walletTransactions.walletId, walletId)),
+  ]);
+
+  const total = Number(totalResult?.total ?? 0);
+
+  return {
+    wallet,
+    transactions,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    },
+  };
 };
 
 export const creditWallet = async (input: WalletMutationInput & TxInput) => {
