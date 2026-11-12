@@ -147,6 +147,25 @@ const loadShell = (templatesDir: string): string => {
 export const hasFirstNameToken = (html: string): boolean => (html || '').includes('{{firstName}}');
 
 /**
+ * Personalize a subject line with the same variables as the body. Subjects are
+ * plain-text headers (not HTML), so the name goes in unescaped, and a stray
+ * {{body}} token is stripped because it has no meaning in a subject.
+ */
+export const renderSubject = (
+  subject: string,
+  data: { firstName?: string; roleLabel?: string },
+): string =>
+  substitute(
+    substitute(
+      substitute(String(subject || ''), 'body', ''),
+      'firstName',
+      data.firstName || 'there',
+    ),
+    'roleLabel',
+    data.roleLabel || 'Eduwins',
+  );
+
+/**
  * Turn a plain-text message (legacy 1:1 admin emails) into paragraphs the
  * broadcast shell can carry. Escaping happens here, so the output is safe to
  * feed straight through sanitizeBroadcastHtml.

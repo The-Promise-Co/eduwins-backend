@@ -30,6 +30,13 @@ export type BroadcastRole = (typeof BROADCAST_ROLES)[number];
 
 export type BookingActivityFilter = 'any' | 'active' | 'completed' | 'none';
 
+/** Generic "any / has / none" option filters (certifications, courses, bank details). */
+export type AudienceSelectionFilter = 'any' | 'has' | 'none';
+
+/** Teacher profile fields that can be filtered individually (location state is excluded — the dedicated State filter already covers it). */
+export const PROFILE_FIELDS = ['bio', 'photo', 'highestDegree', 'yearsOfExperience'] as const;
+export type ProfileField = (typeof PROFILE_FIELDS)[number];
+
 export const DELIVERY_MODES = ['online', 'in_person', 'both'] as const;
 
 export interface BroadcastSegment {
@@ -50,6 +57,13 @@ export interface BroadcastSegment {
   availableOnly?: boolean;
   minRating?: number;
   minSessions?: number;
+  certifications?: AudienceSelectionFilter;
+  courses?: AudienceSelectionFilter;
+  bankDetails?: AudienceSelectionFilter;
+  /** Profile fields the tutor must have filled in. */
+  profileFieldsRequired?: ProfileField[];
+  /** Profile fields the tutor must be missing (also matches tutors with no profile row). */
+  profileFieldsMissing?: ProfileField[];
 
   // ── parent ──────────────────────────────────────────────────────────────
   bookingActivity?: BookingActivityFilter;
@@ -87,6 +101,13 @@ const asDateOnly = (value: unknown, field: string): string | undefined => {
 
 const asBoolean = (value: unknown): boolean | undefined =>
   value === true ? true : value === false ? false : undefined;
+
+const asSelectionFilter = (value: unknown): AudienceSelectionFilter | undefined => {
+  const candidate = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return (['any', 'has', 'none'] as readonly string[]).includes(candidate)
+    ? (candidate as AudienceSelectionFilter)
+    : undefined;
+};
 
 /**
  * Whitelist + coerce an untrusted segment. Unknown keys are dropped, empty
@@ -135,6 +156,30 @@ export const normalizeSegment = (raw: unknown): BroadcastSegment => {
 
     const minSessions = asNumber(input.minSessions);
     if (minSessions !== undefined && minSessions >= 0) normalized.minSessions = minSessions;
+
+    const certifications = asSelectionFilter(input.certifications);
+    if (certifications && certifications !== 'any') normalized.certifications = certifications;
+
+    const coursesFilter = asSelectionFilter(input.courses);
+    if (coursesFilter && coursesFilter !== 'any') normalized.courses = coursesFilter;
+
+    const bankDetails = asSelectionFilter(input.bankDetails);
+    if (bankDetails && bankDetails !== 'any') normalized.bankDetails = bankDetails;
+
+    const toProfileFields = (value: unknown): ProfileField[] | undefined => {
+      const fields = asStringArray(value)?.filter(
+        (field): field is ProfileField => (PROFILE_FIELDS as readonly string[]).includes(field),
+      );
+      return fields?.length ? Array.from(new Set(fields)) : undefined;
+    };
+    const profileFieldsRequired = toProfileFields(input.profileFieldsRequired);
+    const profileFieldsMissing = toProfileFields(input.profileFieldsMissing);
+    if (profileFieldsRequired) normalized.profileFieldsRequired = profileFieldsRequired;
+    // A field cannot be required and missing at the same time; required wins.
+    const remainingMissing = profileFieldsMissing?.filter(
+      (field) => !profileFieldsRequired?.includes(field),
+    );
+    if (remainingMissing?.length) normalized.profileFieldsMissing = remainingMissing;
   } else {
     const activity = String(input.bookingActivity || 'any').toLowerCase();
     if (['any', 'active', 'completed', 'none'].includes(activity)) {
@@ -248,6 +293,68 @@ export const buildAudienceSql = (segment: BroadcastSegment): AudienceSql => {
     }
     if (segment.locationLgas) {
       conditions.push(sql`lower("teacher_profiles"."location_lga") IN (${sql.join(segment.locationLgas.map((lga) => sql`${lga.toLowerCase()}`), sql`, `)})`);
+    }
+
+    // Certifications / courses / payout details are pure EXISTS subqueries so
+    // they also apply to teachers whose profile row is missing entirely
+    // ("none" must still match a teacher with no profile at all).
+    const activeCertificationSubquery = sql`(
+      SELECT 1 FROM "teacher_certifications"
+      WHERE "teacher_certifications"."user_id" = ${users.id}
+        AND ("teacher_certifications"."does_not_expire" = true
+          OR "teacher_certifications"."expiry_date" IS NULL
+          OR "teacher_certifications"."expiry_date" >= current_date))`;
+    if (segment.certifications === 'has') {
+      conditions.push(sql`EXISTS ${activeCertificationSubquery}`);
+    } else if (segment.certifications === 'none') {
+      conditions.push(sql`NOT EXISTS ${activeCertificationSubquery}`);
+    }
+
+    const publishedCourseSubquery = sql`(
+      SELECT 1 FROM "courses"
+      WHERE "courses"."teacher_id" = ${users.id}
+        AND "courses"."status" = 'published')`;
+    if (segment.courses === 'has') {
+      conditions.push(sql`EXISTS ${publishedCourseSubquery}`);
+    } else if (segment.courses === 'none') {
+      conditions.push(sql`NOT EXISTS ${publishedCourseSubquery}`);
+    }
+
+    const payoutAccountSubquery = sql`(
+      SELECT 1 FROM "payout_accounts"
+      WHERE "payout_accounts"."teacher_id" = ${users.id})`;
+    if (segment.bankDetails === 'has') {
+      conditions.push(sql`EXISTS ${payoutAccountSubquery}`);
+    } else if (segment.bankDetails === 'none') {
+      conditions.push(sql`NOT EXISTS ${payoutAccountSubquery}`);
+    }
+
+    // Profile-field filters are EXISTS subqueries too, so "missing" also
+    // matches teachers who have no profile row at all, and "filled in" is
+    // impossible without one — no join needed either way.
+    const profileFieldFilledSql = (field: ProfileField): SQL => {
+      const columns: Record<ProfileField, { column: string; numeric?: boolean }> = {
+        bio: { column: 'bio' },
+        photo: { column: 'photo_url' },
+        highestDegree: { column: 'highest_degree' },
+        yearsOfExperience: { column: 'years_of_experience', numeric: true },
+      };
+      const target = columns[field];
+      const ref = sql`tp."${sql.raw(target.column)}"`; // column names come from our own whitelist
+      return target.numeric
+        ? sql`${ref} IS NOT NULL`
+        : sql`${ref} IS NOT NULL AND trim(${ref}) <> ''`;
+    };
+
+    for (const field of segment.profileFieldsRequired || []) {
+      conditions.push(sql`EXISTS (
+        SELECT 1 FROM "teacher_profiles" AS tp
+        WHERE tp."user_id" = ${users.id} AND ${profileFieldFilledSql(field)})`);
+    }
+    for (const field of segment.profileFieldsMissing || []) {
+      conditions.push(sql`NOT EXISTS (
+        SELECT 1 FROM "teacher_profiles" AS tp
+        WHERE tp."user_id" = ${users.id} AND ${profileFieldFilledSql(field)})`);
     }
   } else {
     const bookingClause = bookingExists(segment);

@@ -6,7 +6,7 @@ import {
   adminMessageGroups,
 } from '../database/schema';
 import { emailService } from '../utils/emailSender';
-import { renderBroadcastEmail, htmlToText } from '../utils/html';
+import { renderSubject, renderBroadcastEmail, htmlToText } from '../utils/html';
 import logger from '../utils/logger';
 
 /**
@@ -200,7 +200,8 @@ export const syncGroupStatus = async (groupId: string): Promise<void> => {
 const attemptRecipient = async (
   recipient: { id: string; email: string; firstName: string | null },
   render: (firstName: string | null) => { html: string; text: string },
-  subject: string,
+  subjectTemplate: string,
+  roleLabel: string,
 ): Promise<{ ok: boolean; skipped?: boolean; error?: string }> => {
   const allowlist = devAllowlist();
   if (allowlist && !allowlist.has(recipient.email.toLowerCase())) {
@@ -208,6 +209,10 @@ const attemptRecipient = async (
   }
 
   const { html, text } = render(recipient.firstName);
+  const subject = renderSubject(subjectTemplate, {
+    firstName: recipient.firstName ?? undefined,
+    roleLabel,
+  });
 
   try {
     await emailService.sendEmail({
@@ -310,7 +315,7 @@ export const runBroadcast = async (broadcastId: string): Promise<void> => {
 
       await Promise.all(
         batch.map(async (recipient) => {
-          const result = await attemptRecipient(recipient, render, broadcast.subject);
+          const result = await attemptRecipient(recipient, render, broadcast.subject, roleLabel);
           if (!result.ok && !result.skipped) {
             logger.warn({ broadcastId, recipientId: recipient.id, error: result.error }, 'broadcast.recipient_failed');
           }

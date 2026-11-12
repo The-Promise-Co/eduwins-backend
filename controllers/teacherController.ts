@@ -67,7 +67,7 @@ export const getTeacherById = async (req: Request, res: Response) => {
 
 export const searchTeachers = async (req: Request, res: Response) => {
   try {
-    const { search, lga, maxRate, locationState, locationLga } = req.query;
+    const { search, lga, maxRate, locationState, locationLga, minRating, subject, certified } = req.query;
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const offset = (page - 1) * limit;
@@ -126,6 +126,39 @@ export const searchTeachers = async (req: Request, res: Response) => {
 
     if (lga && typeof lga === 'string' && !locationLga) {
       conditions.push(ilike(teacherProfiles.locationLga, `%${lga}%`));
+    }
+
+    if (minRating && typeof minRating === 'string') {
+      const rating = parseFloat(minRating);
+      if (!isNaN(rating) && rating > 0) {
+        conditions.push(sql`${teacherProfiles.ratingAvg} >= ${rating}`);
+      }
+    }
+
+    if (subject && typeof subject === 'string') {
+      const subjectValue = subject.trim();
+      if (subjectValue) {
+        // teacherProfiles.subjects may store subject ids (current) or names (legacy); match either
+        const [subjectRow] = await db.query.subjects.findMany({
+          where: eq(subjects.id, subjectValue),
+          limit: 1,
+        });
+        if (subjectRow) {
+          conditions.push(or(
+            sql`${teacherProfiles.subjects} && ARRAY[${subjectValue}::text]::text[]`,
+            sql`${teacherProfiles.subjects} && ARRAY[${subjectRow.name}::text]::text[]`
+          )!);
+        } else {
+          conditions.push(sql`${teacherProfiles.subjects} && ARRAY[${subjectValue}::text]::text[]`);
+        }
+      }
+    }
+
+    if (certified === 'true') {
+      conditions.push(sql`EXISTS (
+        SELECT 1 FROM ${teacherCertifications} tc
+        WHERE tc.user_id = ${teacherProfiles.userId}
+      )`);
     }
 
     const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];

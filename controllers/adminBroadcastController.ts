@@ -9,7 +9,7 @@ import {
 } from '../database/schema';
 import logger from '../utils/logger';
 import { emailService } from '../utils/emailSender';
-import { sanitizeBroadcastHtml, renderBroadcastEmail, htmlToText } from '../utils/html';
+import { sanitizeBroadcastHtml, renderBroadcastEmail, renderSubject, htmlToText } from '../utils/html';
 import {
   BroadcastSegment,
   countAudience,
@@ -115,9 +115,15 @@ export const previewBroadcastEmail = async (req: AuthenticatedRequest, res: Resp
     const segment = normalizeSegment(req.body?.segment);
     const firstName = String(req.body?.firstName || 'Adebola');
 
+    const { html } = buildDraftEmail(bodyHtml, firstName, segment.role);
+    const personalizedSubject = renderSubject(subject, {
+      firstName,
+      roleLabel: roleLabel(segment.role),
+    });
+
     res.json({
-      subject,
-      html: buildDraftEmail(bodyHtml, firstName, segment.role).html,
+      subject: personalizedSubject,
+      html,
       devGuard: describeDevGuard(),
     });
   } catch (err: any) {
@@ -146,10 +152,11 @@ export const sendBroadcastTestEmail = async (req: AuthenticatedRequest, res: Res
 
     const segment = normalizeSegment(req.body?.segment);
     const { html, text } = buildDraftEmail(bodyHtml, 'Adebola', segment.role);
+    const testSubject = renderSubject(subject, { firstName: 'Adebola', roleLabel: roleLabel(segment.role) });
 
     await emailService.sendEmail({
       to: adminEmail,
-      subject: `[TEST] ${subject}`,
+      subject: `[TEST] ${testSubject}`,
       html,
       text,
       replyTo: process.env.EMAIL_REPLY_TO || undefined,
