@@ -8,19 +8,10 @@ interface AuthenticatedRequest {
   user: { id: string; role: string };
 }
 
-// Reward table — mirrors authController constants; single source of truth should
-// eventually live in a shared config file.
-const PLAN_REWARDS: Record<string, number> = {
-  monthly: 150,
-  quarterly: 150,
-  annual: 150,
-};
-
-const PLAN_PRICES: Record<string, number> = {
-  monthly: 5000,
-  quarterly: 12000,
-  annual: 40000,
-};
+// Reward for the referrer when a referred tutor's FIRST PAID subscription
+// (Silver and up) is verified. Mirrors authController; pricing lives in the
+// subscription plan catalog, never here.
+const REFERRAL_SUBSCRIPTION_REWARD = 150;
 
 /**
  * GET /api/referrals/my
@@ -62,11 +53,12 @@ export const getMyReferrals = async (req: any, res: Response) => {
       const referee = refereeMap.get(row.refereeId);
       const plan = row.subscriptionPlan;
 
-      // Potential reward the referrer can earn for this referee's subscription (for display in pending rows)
+      // Potential reward the referrer can earn once this referee takes a paid
+      // subscription (for display in pending rows)
       const pendingRewardEstimates = {
-        monthly:   { price: PLAN_PRICES.monthly,   reward: PLAN_REWARDS.monthly },
-        quarterly: { price: PLAN_PRICES.quarterly, reward: PLAN_REWARDS.quarterly },
-        annual:    { price: PLAN_PRICES.annual,    reward: PLAN_REWARDS.annual },
+        silver: { reward: REFERRAL_SUBSCRIPTION_REWARD },
+        gold: { reward: REFERRAL_SUBSCRIPTION_REWARD },
+        platinum: { reward: REFERRAL_SUBSCRIPTION_REWARD },
       };
 
       return {
@@ -116,9 +108,9 @@ export const getMyReferrals = async (req: any, res: Response) => {
 
 function formatPlanLabel(plan: string): string {
   const labels: Record<string, string> = {
-    monthly: 'Monthly (₦5,000/mo)',
-    quarterly: 'Quarterly (₦12,000/3mo)',
-    annual: 'Annual (₦40,000/yr)',
+    silver: 'Silver',
+    gold: 'Gold',
+    platinum: 'Platinum',
   };
   return labels[plan] ?? plan;
 }
@@ -132,7 +124,7 @@ function buildSummary(rows: any[]) {
     .reduce((sum, r) => sum + Number(r.rewardAmount || 0), 0);
   const pendingRewardEstimate = rows
     .filter((r) => r.status === 'pending')
-    .reduce((sum) => sum + PLAN_REWARDS.monthly, 0); // conservative estimate using lowest plan
+    .reduce((sum) => sum + REFERRAL_SUBSCRIPTION_REWARD, 0);
 
   return {
     total,

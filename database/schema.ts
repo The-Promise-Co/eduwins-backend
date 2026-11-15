@@ -4,6 +4,7 @@ export * from './schema/adminUsers';
 export * from './schema/teacherProfiles';
 export * from './schema/lessons';
 export * from './schema/financials';
+export * from './schema/subscriptions';
 export * from './schema/courses';
 export * from './schema/children';
 export * from './schema/documents';

@@ -5,6 +5,7 @@ import { db } from '../../database/db';
 import { transactions, bookings } from '../../database/schema';
 import { enrollUserInCourse } from '../courses/enrollment';
 import { settleCoursePayment } from './verifyPayment';
+import { settleSubscriptionPayment } from '../../services/subscriptionPayment';
 import logger from '../../utils/logger';
 import { getBookingPaymentWindowHours } from '../../services/systemSettingsService';
 import { createNotification } from '../notificationController';
@@ -165,6 +166,21 @@ export const paystackWebhook = async (req: Request, res: Response) => {
           log,
         });
 
+        return res.json({ received: true });
+      }
+
+      // Subscription checkouts settle here, never through generic payment_in.
+      if (metadata.payment_for === 'tutor_subscription') {
+        const settlement = await settleSubscriptionPayment({
+          subscriptionId: metadata.subscription_id,
+          paystackReference: event.data.reference,
+          paymentData: event.data,
+          log,
+        });
+
+        if (!settlement.success) {
+          log.warn({ subscriptionId: metadata.subscription_id, reference: event.data.reference, error: settlement.error }, 'payment.webhook_subscription_settlement_failed');
+        }
         return res.json({ received: true });
       }
 

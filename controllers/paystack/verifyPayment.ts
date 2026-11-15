@@ -4,6 +4,7 @@ import { and, eq, isNull, isNotNull, lte } from 'drizzle-orm';
 import { db } from '../../database/db';
 import { platformConfigs, transactions, bookings } from '../../database/schema';
 import { enrollUserInCourse } from '../courses/enrollment';
+import { settleSubscriptionPayment } from '../../services/subscriptionPayment';
 import { creditWallet, ensurePlatformWallet, ensureUserWallets } from '../../services/walletService';
 import logger from '../../utils/logger';
 import { createNotification } from '../notificationController';
@@ -398,6 +399,19 @@ export const verifyPayment = async (req: Request, res: Response) => {
       if (!settlement.success) {
         log.warn({ bookingId: metadata.booking_id, reference, error: settlement.error }, 'payment.booking_settlement_failed');
         return res.status(400).json({ error: settlement.error || 'Booking payment settlement failed' });
+      }
+    } else if (metadata.payment_for === 'tutor_subscription') {
+      // Subscription checkouts settle here, never through generic payment_in.
+      const settlement = await settleSubscriptionPayment({
+        subscriptionId: metadata.subscription_id,
+        paystackReference: data.reference || reference,
+        paymentData: data,
+        log,
+      });
+
+      if (!settlement.success) {
+        log.warn({ subscriptionId: metadata.subscription_id, reference, error: settlement.error }, 'payment.subscription_settlement_failed');
+        return res.status(400).json({ error: settlement.error || 'Subscription settlement failed' });
       }
     } else {
       const transactionId = Math.random().toString(36).substring(2, 15);

@@ -32,6 +32,12 @@ import {
   listParentBookings,
 } from '../controllers/adminController';
 import {
+  adminListPlans,
+  adminUpdatePlan,
+  adminListSubscriptions,
+  adminGrantSubscription,
+} from '../controllers/adminSubscriptions';
+import {
   getBroadcastSegmentOptions,
   previewBroadcastAudience,
   previewBroadcastEmail,
@@ -103,6 +109,12 @@ router.get('/configs', adminAuthMiddleware as any, listPlatformConfigs as any);
 router.post('/configs', adminAuthMiddleware as any, createPlatformConfig as any);
 router.put('/configs/:id', adminAuthMiddleware as any, updatePlatformConfig as any);
 router.delete('/configs/:id', adminAuthMiddleware as any, deletePlatformConfig as any);
+
+// Tutor subscriptions — plan catalog management, subscriber list, manual grants
+router.get('/subscriptions/plans', adminAuthMiddleware as any, adminListPlans as any);
+router.put('/subscriptions/plans/:slug', adminAuthMiddleware as any, adminUpdatePlan as any);
+router.get('/subscriptions', adminAuthMiddleware as any, adminListSubscriptions as any);
+router.post('/subscriptions/grant', adminAuthMiddleware as any, adminGrantSubscription as any);
 
 // Teachers management
 router.get('/teachers', adminAuthMiddleware as any, listAllTeachers as any);

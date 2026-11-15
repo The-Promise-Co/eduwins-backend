@@ -14,19 +14,10 @@ import { creditWallet, ensureUserWallets } from '../services/walletService';
 const TEACHER_REFERRAL_WELFARE_BOOST = 1500; // ₦1,500 welfare boost per referral
 const PARENT_REFERRAL_DISCOUNT_VALUE = 1000; // ₦1,000 booking credit per referral
 
-// Reward amount per successful referral subscription (for referrer)
-const PLAN_REWARDS: Record<string, number> = {
-  monthly: 150,
-  quarterly: 150,
-  annual: 150,
-};
-
-// Subscription plan prices for referral reward calculation.
-const PLAN_PRICES: Record<string, number> = {
-  monthly: 5000,
-  quarterly: 12000,
-  annual: 40000,
-};
+// Reward amount for the referrer when the referred tutor's FIRST paid
+// subscription (Silver and up) is verified. Flat across tiers; the plan
+// catalog — not this file — owns pricing.
+const REFERRAL_SUBSCRIPTION_REWARD = 150;
 
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -935,12 +926,13 @@ async function registerReferral(referrerId: string, refereeId: string): Promise<
 
 /**
  * creditReferralReward
- * Called by the subscription controller when a referee completes their FIRST subscription.
+ * Called by the subscription settlement when a referee completes their FIRST
+ * PAID subscription (Silver and up — the Free tier never reaches a checkout).
  * Marks the referral as 'subscribed', records the plan/price/reward,
- * and applies the credit to the referrer's wallet/discount balance.
+ * and applies the credit to the referrer's wallet.
  *
  * @param refereeId   - the user who just subscribed
- * @param plan        - 'monthly' | 'quarterly' | 'annual'
+ * @param plan        - plan slug from the server-owned catalog ('silver' | 'gold' | 'platinum')
  * @param price       - actual amount paid (₦)
  */
 export async function creditReferralReward(
@@ -958,7 +950,7 @@ export async function creditReferralReward(
 
   if (!referral || referral.rewardCredited) return; // no referral, or already credited
 
-  const rewardAmount = PLAN_REWARDS[plan] ?? Math.round(price * 0.10);
+  const rewardAmount = REFERRAL_SUBSCRIPTION_REWARD;
 
   // Update the referral row with subscription details
   await db.update(referrals)

@@ -179,10 +179,15 @@ export const searchTeachers = async (req: Request, res: Response) => {
         locationArea: teacherProfiles.locationArea,
         location: sql<string>`COALESCE(${teacherProfiles.locationArea}, ${teacherProfiles.locationLga}, '')`,
         isAdminApproved: teacherProfiles.isAdminApproved,
+        searchRank: teacherProfiles.searchRank,
+        featured: sql<boolean>`${teacherProfiles.searchRank} IN ('priority', 'premium')`,
       })
         .from(teacherProfiles)
         .innerJoin(users, eq(teacherProfiles.userId, users.id))
         .where(whereClause)
+        // Subscription search visibility: premium (Platinum) before priority
+        // (Gold) before improved (Silver) before standard, then by rating.
+        .orderBy(sql`CASE ${teacherProfiles.searchRank} WHEN 'premium' THEN 0 WHEN 'priority' THEN 1 WHEN 'improved' THEN 2 ELSE 3 END`, sql`${teacherProfiles.ratingAvg} DESC`)
         .limit(limit)
         .offset(offset),
 
