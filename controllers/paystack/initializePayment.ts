@@ -56,7 +56,7 @@ export const initializePaystackTransaction = async ({
 };
 
 export const initializePayment = async (req: AuthenticatedRequest, res: Response) => {
-  const { email, amount, currency, reference, callback_url, course_id, booking_id, bookingId } = req.body;
+  const { email, amount, currency, reference, course_id, booking_id, bookingId } = req.body;
   const bookingIdValue = booking_id || bookingId;
   const userId = req.user?.id;
   const log = (req as any).log || logger;
@@ -133,7 +133,8 @@ export const initializePayment = async (req: AuthenticatedRequest, res: Response
         amount: totalAmount,
         currency,
         reference,
-        callback_url: callback_url || `${process.env.FRONTEND_URL}/bookings/payment/confirm`,
+        // Backend-owned redirect — the client never chooses where Paystack sends the user.
+        callback_url: `${process.env.FRONTEND_URL}/bookings/payment/confirm`,
         metadata,
       });
 
@@ -197,9 +198,10 @@ export const initializePayment = async (req: AuthenticatedRequest, res: Response
       amount: Number(amount),
       currency,
       reference,
-      callback_url: callback_url || (course_id
+      // Backend-owned redirect — the client never chooses where Paystack sends the user.
+      callback_url: course_id
         ? `${process.env.FRONTEND_URL}/courses/payment/confirm`
-        : `${process.env.FRONTEND_URL}/payment-success`),
+        : `${process.env.FRONTEND_URL}/payment-success`,
       metadata,
     });
 

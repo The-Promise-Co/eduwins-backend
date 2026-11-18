@@ -112,7 +112,8 @@ export const enrollCourse = async (req: AuthenticatedRequest, res: Response) => 
     const payment = await initializePaystackTransaction({
       email,
       amount: coursePrice,
-      callback_url: req.body.callback_url || `${process.env.FRONTEND_URL}/courses/payment/confirm`,
+      // Backend-owned redirect — the client never chooses where Paystack sends the user.
+      callback_url: `${process.env.FRONTEND_URL}/courses/payment/confirm`,
       metadata: {
         payment_for: 'course',
         course_id: courseId,

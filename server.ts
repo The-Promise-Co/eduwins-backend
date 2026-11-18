@@ -46,6 +46,7 @@ import logger from './utils/logger';
 import { requestLogger } from './middleware/requestLogger';
 import { startBookingExpiryScheduler } from './services/bookingExpiryScheduler';
 import { startSessionCompletionScheduler } from './services/sessionCompletionScheduler';
+import { startSubscriptionScheduler } from './services/subscriptionExpiryScheduler';
 import { markStaleBroadcastsInterrupted } from './services/broadcastSender';
 
 const app = express();
@@ -209,6 +210,7 @@ logger.info({ port: PORT, host: HOST, publicApiUrl: PUBLIC_API_URL, isProduction
 
 startBookingExpiryScheduler();
 startSessionCompletionScheduler();
+startSubscriptionScheduler();
 
 // In-process broadcast sends die with the process; flag them as resumable.
 markStaleBroadcastsInterrupted().catch((err) => {

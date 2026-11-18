@@ -1,4 +1,4 @@
-import { and, eq, lte } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
 import { db } from '../database/db';
 import {
   subscriptionPlans,
@@ -9,6 +9,7 @@ import {
   type SubscriptionPlan,
   type TutorSubscription,
 } from '../database/schema';
+import { createNotification } from '../controllers/notificationController';
 import logger from '../utils/logger';
 
 // ---------------------------------------------------------------------------
@@ -139,7 +140,46 @@ export type Entitlements = {
   subscriptionEndsAt: string | null; // ISO date of current term end, if paid
 };
 
-/** Expiry sweep: rows whose term ended become 'expired' and lose their rank. */
+/**
+ * Flip ended subscription rows to 'expired', reset their tutors' search rank
+ * to standard, and notify each tutor once (the flip itself is the dedup —
+ * a row can only transition active→expired a single time).
+ * Returns the expired rows so callers can log or report on them.
+ */
+const expireRows = async (
+  stale: (typeof tutorSubscriptions.$inferSelect)[],
+): Promise<void> => {
+  if (stale.length === 0) return;
+
+  const tutorIds = [...new Set(stale.map((row) => row.tutorId))];
+
+  // Premium search rank ends with the term.
+  await db
+    .update(teacherProfiles)
+    .set({ searchRank: SEARCH_RANK_BY_VISIBILITY.standard, updatedAt: new Date() })
+    .where(inArray(teacherProfiles.userId, tutorIds));
+
+  await Promise.all(
+    stale.map((row) =>
+      createNotification({
+        userId: row.tutorId,
+        type: 'subscription_expired',
+        title: 'Subscription ended',
+        message: `Your ${row.planSnapshot?.name || row.planSlug} plan has ended. You are now on the Free plan — your courses stay live, and you can renew any time.`,
+      }).catch((err) => {
+        // Notification failure must not block the expiry itself.
+        logger.error({ err, subscriptionId: row.id }, 'subscription.expired_notification_failed');
+      }),
+    ),
+  );
+
+  logger.info(
+    { expiredCount: stale.length, tutors: tutorIds.length },
+    'subscription.expired_sweep',
+  );
+};
+
+/** Lazy per-tutor sweep — runs whenever that tutor's entitlements are read. */
 export const expireStaleSubscriptions = async (tutorId: string) => {
   const stale = await db
     .update(tutorSubscriptions)
@@ -153,15 +193,79 @@ export const expireStaleSubscriptions = async (tutorId: string) => {
     )
     .returning();
 
-  if (stale.length > 0) {
-    // Their premium search rank ends with the term.
-    await db
-      .update(teacherProfiles)
-      .set({ searchRank: SEARCH_RANK_BY_VISIBILITY.standard, updatedAt: new Date() })
-      .where(eq(teacherProfiles.userId, tutorId));
+  await expireRows(stale);
+};
 
-    logger.info({ tutorId, expiredCount: stale.length }, 'subscription.expired_sweep');
+/**
+ * Scheduled all-tutor sweep — the cron counterpart of the lazy sweep.
+ * Closes the gap where a lapsed tutor who never visits their dashboard
+ * would keep `active` status and a premium searchRank indefinitely.
+ */
+export const expireAllStaleSubscriptions = async () => {
+  const stale = await db
+    .update(tutorSubscriptions)
+    .set({ status: 'expired', updatedAt: new Date() })
+    .where(
+      and(
+        eq(tutorSubscriptions.status, 'active'),
+        lte(tutorSubscriptions.endsAt, new Date()),
+      ),
+    )
+    .returning();
+
+  await expireRows(stale);
+  return stale.length;
+};
+
+/**
+ * T-7 renewal reminders — one in-app notification per subscription whose
+ * term ends within the next 7 days. `renewal_reminder_sent_at` makes the
+ * job idempotent: a row is never reminded twice.
+ * Returns the number of reminders sent.
+ */
+export const sendDueRenewalReminders = async (): Promise<number> => {
+  const now = new Date();
+  const inSevenDays = new Date(now.getTime() + 7 * 86400000);
+
+  const due = await db
+    .select()
+    .from(tutorSubscriptions)
+    .where(
+      and(
+        eq(tutorSubscriptions.status, 'active'),
+        isNotNull(tutorSubscriptions.endsAt),
+        lte(tutorSubscriptions.endsAt, inSevenDays),
+        gt(tutorSubscriptions.endsAt, now),
+        isNull(tutorSubscriptions.renewalReminderSentAt),
+      ),
+    );
+
+  for (const row of due) {
+    const daysLeft = Math.max(
+      1,
+      Math.ceil((new Date(row.endsAt as Date).getTime() - now.getTime()) / 86400000),
+    );
+    const planName = row.planSnapshot?.name || row.planSlug;
+
+    try {
+      await createNotification({
+        userId: row.tutorId,
+        type: 'subscription_expiring',
+        title: 'Subscription ending soon',
+        message: `Your ${planName} plan ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'}. Renew from your subscription page to keep your benefits.`,
+      });
+      await db
+        .update(tutorSubscriptions)
+        .set({ renewalReminderSentAt: now, updatedAt: now })
+        .where(eq(tutorSubscriptions.id, row.id));
+      logger.info({ subscriptionId: row.id, daysLeft }, 'subscription.renewal_reminder_sent');
+    } catch (err) {
+      // A failed reminder retries on the next job run (flag stays unset).
+      logger.error({ err, subscriptionId: row.id }, 'subscription.renewal_reminder_failed');
+    }
   }
+
+  return due.length;
 };
 
 export const getActiveSubscription = async (tutorId: string): Promise<TutorSubscription | null> => {

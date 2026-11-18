@@ -93,6 +93,10 @@ export const tutorSubscriptions = pgTable('tutor_subscriptions', {
   // Referral reward handling — credited at most once, on first activation.
   referralRewarded: boolean('referral_rewarded').default(false).notNull(),
 
+  // Renewal reminder — set when the T-7 "term ending soon" notification has
+  // been sent for this row, so the reminder job never notifies twice.
+  renewalReminderSentAt: timestamp('renewal_reminder_sent_at'),
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (t) => ({

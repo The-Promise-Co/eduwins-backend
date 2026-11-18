@@ -10,6 +10,7 @@ import {
   teacherEducations,
   platformConfigs,
   wallets,
+  walletTransactions,
   bookings,
   sessionEvents,
   whiteboardSnapshots,
@@ -17,7 +18,7 @@ import {
   lessons,
   disputes,
 } from '../database/schema';
-import { eq, sql, count, and, desc, isNull, or, ilike, asc } from 'drizzle-orm';
+import { eq, sql, count, and, desc, isNull, or, ilike, asc, gte, lt, inArray } from 'drizzle-orm';
 import logger from '../utils/logger';
 import { emailService } from '../utils/emailSender';
 import { sanitizeBroadcastHtml, textToBroadcastHtml, renderBroadcastEmail, htmlToText } from '../utils/html';
@@ -372,13 +373,110 @@ export const getWelfareAnalytics = async (req: AuthenticatedRequest, res: Respon
       .from(wallets)
       .where(and(eq(wallets.ownerType, 'user'), eq(wallets.walletType, 'welfare')));
 
+    // All-time number of credit entries in the welfare ledger.
+    const [contributions] = await db.select({
+      count: sql<number>`count(*)::int`,
+    })
+      .from(walletTransactions)
+      .innerJoin(wallets, eq(wallets.id, walletTransactions.walletId))
+      .where(and(
+        eq(wallets.ownerType, 'user'),
+        eq(wallets.walletType, 'welfare'),
+        eq(walletTransactions.direction, 'credit'),
+      ));
+
     res.json({
       totalAccumulated: parseFloat(totals?.total?.toString() || '0'),
       teachersWithFunds: Number(totals?.teachers || 0),
+      contributionCount: Number(contributions?.count || 0),
     });
   } catch (err: any) {
     (req.log || logger).error({ err, adminId: req.admin?.id }, 'admin.welfare_analytics_failed');
     res.status(500).json({ error: 'Could not fetch welfare analytics' });
+  }
+};
+
+const WELFARE_BOOKING_CREDIT_TYPES = ['welfare_contribution', 'booking_welfare_contribution'];
+
+/**
+ * GET /admin/welfare-credits — paginated list of every credit entry in the
+ * welfare wallet ledger (booking splits, settlement contributions and course
+ * contributions). Filters: search (teacher name/email), source
+ * (all|booking|course), from/to (inclusive date range), page/limit.
+ */
+export const listWelfareCredits = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const page = Math.max(1, parseInt(String(req.query.page), 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10) || 15));
+    const offset = (page - 1) * limit;
+    const searchFilter = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
+    const sourceFilter = String(req.query.source || 'all').toLowerCase();
+    const from = typeof req.query.from === 'string' && req.query.from ? new Date(`${req.query.from}T00:00:00`) : null;
+    const to = typeof req.query.to === 'string' && req.query.to ? new Date(`${req.query.to}T23:59:59.999`) : null;
+
+    const conditions: any[] = [
+      eq(wallets.ownerType, 'user'),
+      eq(wallets.walletType, 'welfare'),
+      eq(walletTransactions.direction, 'credit'),
+    ];
+    if (sourceFilter === 'booking') {
+      conditions.push(inArray(walletTransactions.type, WELFARE_BOOKING_CREDIT_TYPES));
+    } else if (sourceFilter === 'course') {
+      conditions.push(eq(walletTransactions.type, 'course_welfare_contribution'));
+    }
+    if (from && !isNaN(from.getTime())) conditions.push(gte(walletTransactions.createdAt, from));
+    if (to && !isNaN(to.getTime())) conditions.push(lt(walletTransactions.createdAt, to));
+    if (searchFilter) {
+      conditions.push(or(
+        sql`lower(${users.firstName} || ' ' || ${users.lastName}) LIKE ${`%${searchFilter}%`}`,
+        sql`lower(${users.email}) LIKE ${`%${searchFilter}%`}`,
+      ));
+    }
+    const where = and(...conditions);
+
+    const rows = await db.select({
+      id: walletTransactions.id,
+      teacherName: sql<string>`coalesce(${users.firstName} || ' ' || ${users.lastName}, 'Unknown')`,
+      teacherEmail: users.email,
+      amount: walletTransactions.amount,
+      type: walletTransactions.type,
+      description: walletTransactions.description,
+      createdAt: walletTransactions.createdAt,
+    })
+      .from(walletTransactions)
+      .innerJoin(wallets, eq(wallets.id, walletTransactions.walletId))
+      .leftJoin(users, eq(users.id, wallets.ownerId))
+      .where(where)
+      .orderBy(desc(walletTransactions.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [totals] = await db.select({
+      count: sql<number>`count(*)::int`,
+      total: sql<number>`coalesce(sum(${walletTransactions.amount}), 0)`,
+    })
+      .from(walletTransactions)
+      .innerJoin(wallets, eq(wallets.id, walletTransactions.walletId))
+      .leftJoin(users, eq(users.id, wallets.ownerId))
+      .where(where);
+
+    const total = Number(totals?.count || 0);
+    res.json({
+      data: rows.map((row) => ({ ...row, amount: parseFloat(String(row.amount)) })),
+      summary: {
+        count: total,
+        total: parseFloat(totals?.total?.toString() || '0'),
+      },
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    });
+  } catch (err: any) {
+    (req.log || logger).error({ err, adminId: req.admin?.id }, 'admin.welfare_credits_failed');
+    res.status(500).json({ error: 'Could not fetch welfare credits' });
   }
 };
 

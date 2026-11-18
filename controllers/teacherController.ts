@@ -86,21 +86,33 @@ export const searchTeachers = async (req: Request, res: Response) => {
     if (search && typeof search === 'string') {
       const term = search.trim();
 
+      // teacher_profiles.subjects stores catalog subject ids (current) or
+      // names (legacy) — collect both so a free-text term matches either
+      // format. Without the ids, "Chemistry" can never match an array of
+      // UUIDs and subject search silently returns only name matches.
       const matchedSubjects = await db.query.subjects.findMany({
         where: ilike(subjects.name, `%${term}%`),
-        columns: { name: true },
+        columns: { id: true, name: true },
       });
-      const subjectNames = matchedSubjects.map((s) => s.name);
+      const subjectValues = [
+        ...new Set([
+          ...matchedSubjects.map((s) => s.id),
+          ...matchedSubjects.map((s) => s.name),
+        ]),
+      ];
 
       const nameCondition = ilike(
         sql`CONCAT(${users.firstName}, ' ', ${users.lastName})`,
         `%${term}%`
       ) as SQL<unknown>;
 
-      const subjectCondition: SQL<unknown> = subjectNames.length > 0
-        ? sql`${teacherProfiles.subjects} && ARRAY[${subjectNames
-            .map((s) => `'${s.replace(/'/g, "''")}'`)
-            .join(',')}]::text[]`
+      const subjectCondition: SQL<unknown> = subjectValues.length > 0
+        ? // sql.raw is required here: plain strings inside a drizzle sql`
+          // template become bound parameters, which would collapse the whole
+          // list into ARRAY[$1] — one string that matches nothing.
+          sql`${teacherProfiles.subjects} && ARRAY[${sql.raw(
+            subjectValues.map((s) => `'${s.replace(/'/g, "''")}'`).join(','),
+          )}]::text[]`
         : sql`EXISTS (
           SELECT 1 FROM unnest(${teacherProfiles.subjects}) AS t(subj)
           WHERE t.subj ILIKE ${`%${term}%`}
@@ -138,19 +150,33 @@ export const searchTeachers = async (req: Request, res: Response) => {
     if (subject && typeof subject === 'string') {
       const subjectValue = subject.trim();
       if (subjectValue) {
-        // teacherProfiles.subjects may store subject ids (current) or names (legacy); match either
-        const [subjectRow] = await db.query.subjects.findMany({
+        // teacherProfiles.subjects may store subject ids (current) or names
+        // (legacy). Resolve the value as an id first, then as a name, and
+        // overlap against both so either storage format matches.
+        let [subjectRow] = await db.query.subjects.findMany({
           where: eq(subjects.id, subjectValue),
           limit: 1,
         });
-        if (subjectRow) {
-          conditions.push(or(
-            sql`${teacherProfiles.subjects} && ARRAY[${subjectValue}::text]::text[]`,
-            sql`${teacherProfiles.subjects} && ARRAY[${subjectRow.name}::text]::text[]`
-          )!);
-        } else {
-          conditions.push(sql`${teacherProfiles.subjects} && ARRAY[${subjectValue}::text]::text[]`);
+        if (!subjectRow) {
+          [subjectRow] = await db.query.subjects.findMany({
+            where: eq(subjects.name, subjectValue),
+            limit: 1,
+          });
         }
+
+        const overlapValues = [
+          ...new Set([
+            subjectValue,
+            ...(subjectRow ? [subjectRow.id, subjectRow.name] : []),
+          ]),
+        ];
+        // sql.raw: see the search-path comment — a joined string would bind
+        // as a single parameter and match nothing.
+        conditions.push(
+          sql`${teacherProfiles.subjects} && ARRAY[${sql.raw(
+            overlapValues.map((s) => `'${s.replace(/'/g, "''")}'`).join(','),
+          )}]::text[]`
+        );
       }
     }
 

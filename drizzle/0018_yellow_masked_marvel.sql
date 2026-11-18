@@ -1,0 +1,1 @@
+ALTER TABLE "tutor_subscriptions" ADD COLUMN "renewal_reminder_sent_at" timestamp;

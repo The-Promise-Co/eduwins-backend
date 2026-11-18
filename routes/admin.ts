@@ -7,6 +7,7 @@ import {
   verifyDocument,
   rejectDocument,
   getWelfareAnalytics,
+  listWelfareCredits,
   listPlatformConfigs,
   createPlatformConfig,
   updatePlatformConfig,
@@ -62,11 +63,23 @@ import {
   cancelPayoutApproval,
   getPaystackBalance,
 } from '../controllers/payoutAdminController';
+import {
+  getDashboardAnalytics,
+  getPaymentsReport,
+  getQuickReport,
+  listQuickReports,
+} from '../controllers/adminAnalyticsController';
 
 const router = express.Router();
 
 // Dashboard overview
 router.get('/overview', adminAuthMiddleware as any, getAdminOverview as any);
+
+// Analytics & reports
+router.get('/analytics/dashboard', adminAuthMiddleware as any, getDashboardAnalytics as any);
+router.get('/payments/report', adminAuthMiddleware as any, getPaymentsReport as any);
+router.get('/reports', adminAuthMiddleware as any, listQuickReports as any);
+router.get('/reports/:type', adminAuthMiddleware as any, getQuickReport as any);
 
 // Vetting queue
 router.get('/vetting', adminAuthMiddleware as any, listVettingQueue as any);
@@ -78,6 +91,7 @@ router.put('/documents/:documentId/reject', adminAuthMiddleware as any, rejectDo
 
 // Welfare Analytics
 router.get('/welfare-analytics', adminAuthMiddleware as any, getWelfareAnalytics as any);
+router.get('/welfare-credits', adminAuthMiddleware as any, listWelfareCredits as any);
 
 // Bookings
 router.get('/bookings-pending', adminAuthMiddleware as any, listBookingsPending as any);
